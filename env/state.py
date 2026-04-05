@@ -7,20 +7,17 @@ from enum import Enum
 class ProblemStatus(str, Enum):
     NOT_VISITED = "NOT_VISITED"
     IN_PROGRESS = "IN_PROGRESS"
-    SUBMITTED = "SUBMITTED"
-    GIVEN_UP = "GIVEN_UP"
+    MOVED_ON = "MOVED_ON"
 
     @property
     def is_terminal(self) -> bool:
-        return self in {ProblemStatus.SUBMITTED, ProblemStatus.GIVEN_UP}
+        return self == ProblemStatus.MOVED_ON
 
 
 @dataclass
 class ProblemProgress:
     status: ProblemStatus = ProblemStatus.NOT_VISITED
     time_spent_sec: float = 0.0
-    submit_count: int = 0
-    judged_correct: bool | None = None
     confidence_score: float = 0.0
 
 
@@ -36,4 +33,4 @@ class ExamState:
         return all(p.status.is_terminal for p in self.progress)
 
     def solved_count(self) -> int:
-        return sum(1 for p in self.progress if p.judged_correct is True)
+        return sum(1 for p in self.progress if p.confidence_score >= 0.5)

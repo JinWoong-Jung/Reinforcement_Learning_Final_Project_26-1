@@ -95,7 +95,7 @@ def _ensure_dirs(base_dir: str) -> dict[str, str]:
 
 def _build_env(config: dict[str, Any], for_dqn: bool = False, seed: int | None = None):
     env = ExamStrategyEnv(config=config, random_seed=seed)
-    if for_dqn:
+    if for_dqn and hasattr(env.action_space, "nvec"):
         env = DiscreteActionWrapper(env)
     return env
 

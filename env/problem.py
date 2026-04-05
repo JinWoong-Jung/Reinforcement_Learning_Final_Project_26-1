@@ -8,6 +8,7 @@ from typing import Any
 @dataclass(frozen=True)
 class Problem:
     pid: int
+    difficulty_level: str
     difficulty: float
     score: int
     avg_time: float
@@ -21,6 +22,7 @@ class Problem:
     def from_dict(cls, raw: dict[str, Any]) -> "Problem":
         return cls(
             pid=int(raw["pid"]),
+            difficulty_level=str(raw.get("difficulty_level", "unknown")),
             difficulty=float(raw["difficulty"]),
             score=int(raw["score"]),
             avg_time=float(raw["avg_time"]),

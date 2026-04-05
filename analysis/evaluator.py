@@ -10,7 +10,6 @@ from agents.heuristic_agents import (
     heuristic_action,
 )
 from env.exam_env import ExamStrategyEnv
-from env.state import ProblemStatus
 from utils.io import save_json, save_results_csv
 
 
@@ -27,9 +26,6 @@ class EpisodeRecord:
     total_score: float
     solved_count: int
     remaining_time_sec: float
-    skip_count: int
-    easy_recovery_rate: float
-    hard_time_ratio: float
     time_spent_total: float
     problem_time_spent: list[float]
     score_timeline: list[float]
@@ -43,9 +39,6 @@ class EpisodeRecord:
             "total_score": self.total_score,
             "solved_count": self.solved_count,
             "remaining_time_sec": self.remaining_time_sec,
-            "skip_count": self.skip_count,
-            "easy_recovery_rate": self.easy_recovery_rate,
-            "hard_time_ratio": self.hard_time_ratio,
             "time_spent_total": self.time_spent_total,
             "problem_time_spent": self.problem_time_spent,
             "score_timeline": self.score_timeline,
@@ -53,34 +46,14 @@ class EpisodeRecord:
         }
 
 
-def _decode_dqn_action(action: Any, num_action_types: int = 4) -> np.ndarray:
-    a = int(np.asarray(action).item())
-    action_type = a % num_action_types
-    problem_idx = a // num_action_types
-    return np.array([problem_idx, action_type], dtype=np.int64)
-
-
-def _episode_metrics(env: ExamStrategyEnv, skip_count: int, ep_reward: float, episode: int, student_level: str) -> EpisodeRecord:
+def _episode_metrics(env: ExamStrategyEnv, ep_reward: float, episode: int, student_level: str) -> EpisodeRecord:
     assert env.state is not None
-    easy_mask = [p.difficulty <= 0.35 for p in env.problems]
-    hard_mask = [p.difficulty >= 0.75 for p in env.problems]
-
-    easy_total = int(sum(easy_mask))
-    easy_solved = 0
-    hard_time = 0.0
     total_time = 0.0
     problem_times: list[float] = []
     for i, progress in enumerate(env.state.progress):
         spent = float(progress.time_spent_sec)
         problem_times.append(spent)
         total_time += spent
-        if easy_mask[i] and progress.judged_correct is True:
-            easy_solved += 1
-        if hard_mask[i]:
-            hard_time += spent
-
-    easy_recovery_rate = float(easy_solved / easy_total) if easy_total > 0 else 0.0
-    hard_time_ratio = float(hard_time / total_time) if total_time > 0 else 0.0
 
     return EpisodeRecord(
         episode=episode,
@@ -89,9 +62,6 @@ def _episode_metrics(env: ExamStrategyEnv, skip_count: int, ep_reward: float, ep
         total_score=float(env.state.total_score),
         solved_count=int(env.state.solved_count()),
         remaining_time_sec=float(env.state.remaining_time_sec),
-        skip_count=int(skip_count),
-        easy_recovery_rate=easy_recovery_rate,
-        hard_time_ratio=hard_time_ratio,
         time_spent_total=float(total_time),
         problem_time_spent=problem_times,
         score_timeline=[],
@@ -135,31 +105,24 @@ def evaluate_policy(
         done = False
         truncated = False
         ep_reward = 0.0
-        skip_count = 0
         score_timeline = [0.0]
         used_time_timeline = [0.0]
         while not (done or truncated):
             if rl_model is not None:
                 raw_action, _ = rl_model.predict(obs, deterministic=True)
-                if is_dqn:
-                    num_action_types = int(base_env.action_space.nvec[1])
-                    action = _decode_dqn_action(raw_action, num_action_types=num_action_types)
-                else:
-                    action = raw_action
+                action = raw_action
             else:
                 action = heuristic_action(base_env, policy_name)
 
             obs, reward, done, truncated, info = base_env.step(action)
             ep_reward += float(reward)
-            if info.get("action_name") == "skip":
-                skip_count += 1
 
             state = base_env.state
             assert state is not None
             score_timeline.append(float(state.total_score))
             used_time_timeline.append(float(base_env.total_time_sec - state.remaining_time_sec))
 
-        record = _episode_metrics(base_env, skip_count, ep_reward, ep, ep_student_level)
+        record = _episode_metrics(base_env, ep_reward, ep, ep_student_level)
         record.score_timeline = score_timeline
         record.used_time_timeline = used_time_timeline
         records.append(record)
@@ -185,9 +148,6 @@ def _build_summary(records: list[EpisodeRecord], policy_name: str) -> dict[str, 
         "policy_name": policy_name,
         "mean_score": _mean([r.total_score for r in records]),
         "mean_reward": _mean([r.total_reward for r in records]),
-        "mean_easy_recovery_rate": _mean([r.easy_recovery_rate for r in records]),
-        "mean_hard_time_ratio": _mean([r.hard_time_ratio for r in records]),
-        "mean_skip_count": _mean([float(r.skip_count) for r in records]),
     }
 
     by_level: dict[str, dict[str, float]] = {}
@@ -196,9 +156,6 @@ def _build_summary(records: list[EpisodeRecord], policy_name: str) -> dict[str, 
         by_level[level] = {
             "mean_score": _mean([r.total_score for r in chunk]),
             "mean_reward": _mean([r.total_reward for r in chunk]),
-            "mean_easy_recovery_rate": _mean([r.easy_recovery_rate for r in chunk]),
-            "mean_hard_time_ratio": _mean([r.hard_time_ratio for r in chunk]),
-            "mean_skip_count": _mean([float(r.skip_count) for r in chunk]),
         }
 
     num_problems = len(records[0].problem_time_spent) if records else 0

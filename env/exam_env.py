@@ -27,13 +27,13 @@ except ImportError:  # pragma: no cover
                 self.shape = shape
                 self.dtype = dtype
 
-        class _FallbackMultiDiscrete:
-            def __init__(self, nvec):
-                self.nvec = np.asarray(nvec, dtype=np.int64)
+        class _FallbackDiscrete:
+            def __init__(self, n):
+                self.n = int(n)
 
         class _FallbackSpaces:
             Box = _FallbackBox
-            MultiDiscrete = _FallbackMultiDiscrete
+            Discrete = _FallbackDiscrete
 
         class _FallbackGym:
             Env = _FallbackEnv
@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover
         gym = _FallbackGym()
         spaces = _FallbackSpaces()
 
-from .dynamics import guess_answer, solve_more, submit_answer
+from .dynamics import expected_total_score, move_next, solve_more
 from .problem import Problem, load_exam_json
 from .reward import compute_step_reward, compute_terminal_reward
 from .state import ExamState, ProblemProgress, ProblemStatus
@@ -50,6 +50,19 @@ from .student import StudentProfile, create_level_profile, load_student_profiles
 
 class ExamStrategyEnv(gym.Env):
     metadata = {"render_modes": []}
+    DIFFICULTY_LEVEL_MAP = {
+        "하": 0.0,
+        "중하": 0.2,
+        "중": 0.4,
+        "중상": 0.6,
+        "상": 0.8,
+        "최상": 1.0,
+        "unknown": 0.5,
+    }
+    PROBLEM_TYPE_MAP = {
+        "objective": 0.0,
+        "subjective": 1.0,
+    }
 
     def __init__(
         self,
@@ -64,7 +77,6 @@ class ExamStrategyEnv(gym.Env):
         self.config = config
         self.reward_cfg = dict(config.get("reward", {}))
         self.exam_cfg = dict(config.get("exam", {}))
-        self.training_cfg = dict(config.get("training", {}))
         self.data_cfg = dict(config.get("data", {}))
         self.student_cfg = dict(config.get("student", {}))
 
@@ -100,20 +112,17 @@ class ExamStrategyEnv(gym.Env):
         self.problems: list[Problem] = [Problem.from_dict(x) for x in exam_data["problems"]]
         self.num_problems = len(self.problems)
         self.total_time_sec = float(self.exam_cfg.get("total_time_sec", exam_data.get("total_time_sec", 6000)))
-        self.action_time_unit_sec = float(self.exam_cfg.get("action_time_unit_sec", 60))
+        self.action_time_unit_sec = float(self.exam_cfg.get("action_time_unit_sec", 30))
         self.reveal_difficulty = bool(self.exam_cfg.get("reveal_difficulty", False))
-        self.review_conf_threshold = float(self.exam_cfg.get("review_conf_threshold", 0.7))
 
         self.rng = np.random.default_rng(random_seed)
         self.student_profiles = load_student_profiles(self.student_data_path)
         self.current_student: StudentProfile | None = None
         self.state: ExamState | None = None
 
-        # [target_problem_idx, action_type]
-        # action_type: 0=solve_more, 1=submit_and_move, 2=give_up_and_move, 3=skip_and_move
-        self.action_space = spaces.MultiDiscrete([self.num_problems, 4])
+        self.action_space = spaces.Discrete(2)  # 0=solve_more, 1=next
 
-        obs_dim = 2 + (self.num_problems * 5)
+        obs_dim = 2 + (self.num_problems * 8)
         self.observation_space = spaces.Box(
             low=np.zeros(obs_dim, dtype=np.float32),
             high=np.ones(obs_dim, dtype=np.float32),
@@ -138,28 +147,22 @@ class ExamStrategyEnv(gym.Env):
                 raise ValueError(f"Student id '{student_id}' not found in {self.student_data_path}")
             self.current_student = picked
         elif isinstance(student_level, str):
-            self.current_student = create_level_profile(
-                student_level,
-                self.rng,
-                preset_path=self.student_preset_path,
-            )
+            self.current_student = create_level_profile(student_level, self.rng, preset_path=self.student_preset_path)
         elif self.student_profiles:
             self.current_student = sample_student_profile(self.student_profiles, self.rng)
         else:
-            self.current_student = create_level_profile(
-                "mid",
-                self.rng,
-                preset_path=self.student_preset_path,
-            )
+            self.current_student = create_level_profile("mid", self.rng, preset_path=self.student_preset_path)
 
+        progress = [ProblemProgress() for _ in range(self.num_problems)]
+        progress[0].status = ProblemStatus.IN_PROGRESS
         self.state = ExamState(
             remaining_time_sec=self.total_time_sec,
             current_problem_idx=0,
-            progress=[ProblemProgress() for _ in range(self.num_problems)],
+            progress=progress,
             total_score=0.0,
             step_count=0,
         )
-
+        self.state.total_score = expected_total_score(self.state, self.problems)
         obs = self._get_obs()
         info = {"student_id": self.current_student.student_id}
         return obs, info
@@ -169,78 +172,30 @@ class ExamStrategyEnv(gym.Env):
             raise RuntimeError("Call reset() before step().")
 
         if self._is_done():
-            obs = self._get_obs()
-            return obs, 0.0, True, False, {"reason": "already_done"}
+            return self._get_obs(), 0.0, True, False, {"reason": "already_done"}
 
-        action_arr = np.asarray(action, dtype=np.int64).flatten()
-        if action_arr.shape[0] != 2:
-            raise ValueError("Action must have 2 components: [problem_idx, action_type].")
-
-        problem_idx = int(np.clip(action_arr[0], 0, self.num_problems - 1))
-        action_type = int(np.clip(action_arr[1], 0, 3))
-        reward_problem_idx = problem_idx
-        problem = self.problems[problem_idx]
+        action_id = int(np.asarray(action).item())
+        if action_id not in {0, 1}:
+            raise ValueError("Action must be 0 (solve_more) or 1 (next).")
 
         prev_state = copy.deepcopy(self.state)
-        action_name = "skip"
-        invalid_action = False
+        current_idx = self.state.current_problem_idx
+        action_name = "solve_more" if action_id == 0 else "next"
 
-        if action_type == 0:
-            action_name = "solve_more"
-            if problem_idx != self.state.current_problem_idx:
-                invalid_action = True
-            else:
-                solve_more(
-                    state=self.state,
-                    problem_idx=problem_idx,
-                    delta_time_sec=self.action_time_unit_sec,
-                )
-        elif action_type == 1:
-            action_name = "submit"
-            current_idx = self.state.current_problem_idx
-            current_problem = self.problems[current_idx]
-            current_progress = self.state.progress[current_idx]
-            if (
-                current_progress.status != ProblemStatus.IN_PROGRESS
-                or current_progress.time_spent_sec <= 0.0
-            ):
-                invalid_action = True
-            else:
-                reward_problem_idx = current_idx
-                problem = current_problem
-                submit_answer(
-                    state=self.state,
-                    problem_idx=current_idx,
-                    problem=current_problem,
-                    student=self.current_student,
-                    rng=self.rng,
-                )
-                self.state.current_problem_idx = problem_idx
-        elif action_type == 2:
-            action_name = "give_up"
-            current_idx = self.state.current_problem_idx
-            current_problem = self.problems[current_idx]
-            current_progress = self.state.progress[current_idx]
-            if (
-                current_progress.status != ProblemStatus.IN_PROGRESS
-                or current_progress.time_spent_sec <= 0.0
-            ):
-                invalid_action = True
-            else:
-                reward_problem_idx = current_idx
-                problem = current_problem
-                guess_answer(
-                    state=self.state,
-                    problem_idx=current_idx,
-                    problem=current_problem,
-                    student=self.current_student,
-                    rng=self.rng,
-                )
-                self.state.current_problem_idx = problem_idx
-        elif action_type == 3:
-            action_name = "skip"
-            self.state.current_problem_idx = problem_idx
+        if action_id == 0:
+            solve_more(
+                state=self.state,
+                problem_idx=current_idx,
+                delta_time_sec=self.action_time_unit_sec,
+                problem=self.problems[current_idx],
+                student=self.current_student,
+            )
+        else:
+            self.state.progress[current_idx].status = ProblemStatus.MOVED_ON
+            if current_idx < self.num_problems - 1:
+                move_next(self.state, current_idx, current_idx + 1)
 
+        self.state.total_score = expected_total_score(self.state, self.problems)
         self.state.step_count += 1
         terminated = self._is_done()
         truncated = False
@@ -248,55 +203,48 @@ class ExamStrategyEnv(gym.Env):
         reward = compute_step_reward(
             prev_state=prev_state,
             next_state=self.state,
-            problem_idx=reward_problem_idx,
-            problem=problem,
+            problems=self.problems,
             action_name=action_name,
             reward_cfg=self.reward_cfg,
         )
-        if invalid_action:
-            reward += float(self.reward_cfg.get("invalid_action_penalty", -0.1))
         if terminated:
-            reward += compute_terminal_reward(
-                state=self.state,
-                problems=self.problems,
-                reward_cfg=self.reward_cfg,
-            )
+            reward += compute_terminal_reward(self.state, self.problems, self.reward_cfg)
 
-        obs = self._get_obs()
         info = {
             "action_name": action_name,
-            "invalid_action": invalid_action,
             "remaining_time_sec": self.state.remaining_time_sec,
+            "current_problem_idx": self.state.current_problem_idx,
+            "expected_score": self.state.total_score,
         }
-        return obs, float(reward), terminated, truncated, info
+        return self._get_obs(), float(reward), terminated, truncated, info
 
     def _get_obs(self) -> np.ndarray:
         if self.state is None:
             raise RuntimeError("State is not initialized. Call reset().")
 
-        features: list[float] = []
-        features.append(float(np.clip(self.state.remaining_time_sec / max(self.total_time_sec, 1.0), 0.0, 1.0)))
-        features.append(float(np.clip(self.state.current_problem_idx / max(self.num_problems - 1, 1), 0.0, 1.0)))
-
         status_to_num = {
             ProblemStatus.NOT_VISITED: 0.0,
-            ProblemStatus.IN_PROGRESS: 1.0 / 3.0,
-            ProblemStatus.SUBMITTED: 2.0 / 3.0,
-            ProblemStatus.GIVEN_UP: 1.0,
+            ProblemStatus.IN_PROGRESS: 0.5,
+            ProblemStatus.MOVED_ON: 1.0,
         }
 
         max_score = max(p.score for p in self.problems)
+        max_pid = max(p.pid for p in self.problems)
+        features: list[float] = [
+            float(np.clip(self.state.remaining_time_sec / max(self.total_time_sec, 1.0), 0.0, 1.0)),
+            float(np.clip(self.state.current_problem_idx / max(self.num_problems - 1, 1), 0.0, 1.0)),
+        ]
+
         for i, progress in enumerate(self.state.progress):
             problem = self.problems[i]
             features.append(status_to_num[progress.status])
             features.append(float(np.clip(progress.time_spent_sec / max(self.total_time_sec, 1.0), 0.0, 1.0)))
+            features.append(float(self.DIFFICULTY_LEVEL_MAP.get(problem.difficulty_level, 0.5)))
             features.append(float(np.clip(problem.score / max(max_score, 1), 0.0, 1.0)))
+            features.append(float(self.PROBLEM_TYPE_MAP.get(problem.problem_type, 0.5)))
+            features.append(float(np.clip(problem.pid / max(max_pid, 1), 0.0, 1.0)))
             features.append(float(np.clip(progress.confidence_score, 0.0, 1.0)))
-            if self.reveal_difficulty:
-                # Optional ablation mode; default is hidden to model partial observability.
-                features.append(float(np.clip(problem.difficulty, 0.0, 1.0)))
-            else:
-                features.append(float(np.clip(progress.submit_count / 3.0, 0.0, 1.0)))
+            features.append(float(np.clip(problem.difficulty, 0.0, 1.0)))
 
         return np.asarray(features, dtype=np.float32)
 
@@ -305,5 +253,4 @@ class ExamStrategyEnv(gym.Env):
             return False
         if self.state.remaining_time_sec <= 0:
             return True
-        max_steps = int(self.exam_cfg.get("max_steps_per_episode", max(500, self.num_problems * 40)))
-        return self.state.step_count >= max_steps
+        return self.state.is_all_terminal()
