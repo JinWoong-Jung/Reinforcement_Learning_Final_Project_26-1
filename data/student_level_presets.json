@@ -1,0 +1,20 @@
+{
+  "noise": {
+    "skill_std": 0.03,
+    "topic_std": 0.05
+  },
+  "topics": [
+    "number_system",
+    "algebra",
+    "functions",
+    "sequence",
+    "probability_statistics",
+    "geometry_vectors",
+    "calculus"
+  ],
+  "levels": {
+    "low": {"skill_global": 0.38, "skill_speed": 0.42, "skill_accuracy": 0.40, "skill_guess": 0.45, "stress_tolerance": 0.36},
+    "mid": {"skill_global": 0.58, "skill_speed": 0.56, "skill_accuracy": 0.60, "skill_guess": 0.35, "stress_tolerance": 0.52},
+    "high": {"skill_global": 0.80, "skill_speed": 0.74, "skill_accuracy": 0.82, "skill_guess": 0.28, "stress_tolerance": 0.70}
+  }
+}

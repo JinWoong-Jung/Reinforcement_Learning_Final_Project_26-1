@@ -1,0 +1,54 @@
+# Global experiment settings
+experiment:
+  name: "RLProject"
+  seed: 42
+
+# Exam environment settings
+exam:
+  total_time_sec: 6000          # 100 minutes
+  num_problems: 30
+  action_time_unit_sec: 30      # e.g., 30 or 60 seconds
+  reveal_difficulty: false      # student/agent cannot directly observe true difficulty
+
+# Reward shaping weights
+reward:
+  correct_answer: 1.0
+  wrong_answer: -0.5
+  skip_penalty: -0.02
+  time_penalty_per_sec: -0.001
+  overfocus_penalty: -0.2
+  easy_miss_penalty: -0.25
+  easy_unvisited_penalty: -0.2
+  timeout_penalty: -1.0
+  remaining_time_bonus: 0.001
+
+# Agent training config
+training:
+  algorithm: "ppo"              # options: ppo, dqn
+  total_steps: 500000
+  eval_episodes: 100
+
+# PPO hyperparameters (used when training.algorithm == "ppo")
+ppo:
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+
+# DQN hyperparameters (used when training.algorithm == "dqn")
+dqn:
+  learning_rate: 1.0e-4
+  gamma: 0.99
+  buffer_size: 100000
+  learning_starts: 10000
+  batch_size: 128
+  train_freq: 4
+  target_update_interval: 1000
+  exploration_initial_eps: 1.0
+  exploration_final_eps: 0.05
+  exploration_fraction: 0.2

@@ -1,0 +1,22 @@
+{
+  "students": [
+    {
+      "student_id": "S",
+      "skill_global": 0.9,
+      "skill_speed": 0.8,
+      "skill_accuracy": 0.85,
+      "skill_guess": 0.50,
+      "topic_skill": {
+        "number_system": 0.95,
+        "algebra": 0.85,
+        "functions": 0.80,
+        "sequence": 0.82,
+        "probability_statistics": 0.78,
+        "geometry_vectors": 0.75,
+        "calculus": 0.80
+      },
+      "stress_tolerance": 0.65
+    }
+  ],
+  "sampling_note": "You can ignore fixed profiles and sample synthetic students per episode from distributions around these ranges."
+}
