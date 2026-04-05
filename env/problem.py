@@ -14,6 +14,8 @@ class Problem:
     error_rate: float
     problem_type: str
     topic: str
+    actual_answer: Any | None = None
+    choice_rate: dict[str, float] | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Problem":
@@ -25,6 +27,8 @@ class Problem:
             error_rate=float(raw["error_rate"]),
             problem_type=str(raw["problem_type"]),
             topic=str(raw["topic"]),
+            actual_answer=raw.get("actual_answer"),
+            choice_rate={str(k): float(v) for k, v in raw.get("choice_rate", {}).items()} or None,
         )
 
 

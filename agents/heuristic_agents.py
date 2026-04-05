@@ -26,8 +26,13 @@ class EpisodeStats:
 def _available_problem_indices(env: ExamStrategyEnv) -> list[int]:
     assert env.state is not None
     idxs: list[int] = []
+    threshold = float(getattr(env, "review_conf_threshold", 0.7))
     for i, p in enumerate(env.state.progress):
-        if p.status not in {ProblemStatus.SOLVED, ProblemStatus.FAILED, ProblemStatus.GIVEN_UP}:
+        if p.status == ProblemStatus.SUBMITTED and p.confidence_score >= threshold:
+            continue
+        if p.status == ProblemStatus.GIVEN_UP and p.confidence_score >= threshold:
+            continue
+        if p.status != ProblemStatus.SUBMITTED or p.confidence_score < threshold:
             idxs.append(i)
     return idxs
 
@@ -99,13 +104,35 @@ def heuristic_action(env: ExamStrategyEnv, policy_name: str) -> np.ndarray:
     if not candidates:
         return np.array([0, 3], dtype=np.int64)  # skip
 
+    current_idx = int(env.state.current_problem_idx)
     idx = int(np.clip(selector(env), 0, env.num_problems - 1))
-    progress = env.state.progress[idx]
-    problem = env.problems[idx]
+    current_progress = env.state.progress[current_idx]
+    current_problem = env.problems[current_idx]
+
+    if idx != current_idx:
+        return np.array([idx, 3], dtype=np.int64)  # move to target problem
+
+    progress = current_progress
+    problem = current_problem
+    threshold = float(getattr(env, "review_conf_threshold", 0.7))
+    if progress.status in {ProblemStatus.SUBMITTED, ProblemStatus.GIVEN_UP} and progress.confidence_score < threshold and env.state.remaining_time_sec > 0:
+        return np.array([current_idx, 0], dtype=np.int64)  # reopen by solving more
     budget = target_time_budget(problem, policy_name)
     if progress.time_spent_sec < budget and env.state.remaining_time_sec > 0:
-        return np.array([idx, 0], dtype=np.int64)  # solve_more
-    return np.array([idx, 1], dtype=np.int64)  # submit
+        return np.array([current_idx, 0], dtype=np.int64)  # solve_more
+
+    if progress.status == ProblemStatus.IN_PROGRESS and progress.time_spent_sec > 0:
+        return np.array([current_idx, 1], dtype=np.int64)  # submit
+
+    unseen = [i for i in range(env.num_problems) if env.state.progress[i].status == ProblemStatus.NOT_VISITED and i != current_idx]
+    if unseen:
+        return np.array([unseen[0], 3], dtype=np.int64)
+
+    visited = [i for i in candidates if i != current_idx]
+    if visited:
+        return np.array([visited[0], 3], dtype=np.int64)
+
+    return np.array([current_idx, 0], dtype=np.int64)
 
 
 def run_heuristic_episode(

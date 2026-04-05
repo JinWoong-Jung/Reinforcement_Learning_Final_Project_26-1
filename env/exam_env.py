@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover
         gym = _FallbackGym()
         spaces = _FallbackSpaces()
 
-from .dynamics import give_up_problem, solve_more, submit_answer
+from .dynamics import guess_answer, solve_more, submit_answer
 from .problem import Problem, load_exam_json
 from .reward import compute_step_reward, compute_terminal_reward
 from .state import ExamState, ProblemProgress, ProblemStatus
@@ -102,6 +102,7 @@ class ExamStrategyEnv(gym.Env):
         self.total_time_sec = float(self.exam_cfg.get("total_time_sec", exam_data.get("total_time_sec", 6000)))
         self.action_time_unit_sec = float(self.exam_cfg.get("action_time_unit_sec", 60))
         self.reveal_difficulty = bool(self.exam_cfg.get("reveal_difficulty", False))
+        self.review_conf_threshold = float(self.exam_cfg.get("review_conf_threshold", 0.7))
 
         self.rng = np.random.default_rng(random_seed)
         self.student_profiles = load_student_profiles(self.student_data_path)
@@ -109,10 +110,10 @@ class ExamStrategyEnv(gym.Env):
         self.state: ExamState | None = None
 
         # [target_problem_idx, action_type]
-        # action_type: 0=solve_more, 1=submit, 2=give_up, 3=skip
+        # action_type: 0=solve_more, 1=submit_and_move, 2=give_up_and_move, 3=skip_and_move
         self.action_space = spaces.MultiDiscrete([self.num_problems, 4])
 
-        obs_dim = 2 + (self.num_problems * 4)
+        obs_dim = 2 + (self.num_problems * 5)
         self.observation_space = spaces.Box(
             low=np.zeros(obs_dim, dtype=np.float32),
             high=np.ones(obs_dim, dtype=np.float32),
@@ -177,35 +178,68 @@ class ExamStrategyEnv(gym.Env):
 
         problem_idx = int(np.clip(action_arr[0], 0, self.num_problems - 1))
         action_type = int(np.clip(action_arr[1], 0, 3))
-        self.state.current_problem_idx = problem_idx
+        reward_problem_idx = problem_idx
         problem = self.problems[problem_idx]
 
         prev_state = copy.deepcopy(self.state)
         action_name = "skip"
-        was_correct: bool | None = None
-        estimated_prob: float | None = None
+        invalid_action = False
 
         if action_type == 0:
             action_name = "solve_more"
-            solve_more(
-                state=self.state,
-                problem_idx=problem_idx,
-                delta_time_sec=self.action_time_unit_sec,
-            )
+            if problem_idx != self.state.current_problem_idx:
+                invalid_action = True
+            else:
+                solve_more(
+                    state=self.state,
+                    problem_idx=problem_idx,
+                    delta_time_sec=self.action_time_unit_sec,
+                )
         elif action_type == 1:
             action_name = "submit"
-            was_correct, estimated_prob = submit_answer(
-                state=self.state,
-                problem_idx=problem_idx,
-                problem=problem,
-                student=self.current_student,
-                rng=self.rng,
-            )
+            current_idx = self.state.current_problem_idx
+            current_problem = self.problems[current_idx]
+            current_progress = self.state.progress[current_idx]
+            if (
+                current_progress.status != ProblemStatus.IN_PROGRESS
+                or current_progress.time_spent_sec <= 0.0
+            ):
+                invalid_action = True
+            else:
+                reward_problem_idx = current_idx
+                problem = current_problem
+                submit_answer(
+                    state=self.state,
+                    problem_idx=current_idx,
+                    problem=current_problem,
+                    student=self.current_student,
+                    rng=self.rng,
+                )
+                self.state.current_problem_idx = problem_idx
         elif action_type == 2:
             action_name = "give_up"
-            give_up_problem(self.state, problem_idx)
-        else:
+            current_idx = self.state.current_problem_idx
+            current_problem = self.problems[current_idx]
+            current_progress = self.state.progress[current_idx]
+            if (
+                current_progress.status != ProblemStatus.IN_PROGRESS
+                or current_progress.time_spent_sec <= 0.0
+            ):
+                invalid_action = True
+            else:
+                reward_problem_idx = current_idx
+                problem = current_problem
+                guess_answer(
+                    state=self.state,
+                    problem_idx=current_idx,
+                    problem=current_problem,
+                    student=self.current_student,
+                    rng=self.rng,
+                )
+                self.state.current_problem_idx = problem_idx
+        elif action_type == 3:
             action_name = "skip"
+            self.state.current_problem_idx = problem_idx
 
         self.state.step_count += 1
         terminated = self._is_done()
@@ -214,12 +248,13 @@ class ExamStrategyEnv(gym.Env):
         reward = compute_step_reward(
             prev_state=prev_state,
             next_state=self.state,
-            problem_idx=problem_idx,
+            problem_idx=reward_problem_idx,
             problem=problem,
             action_name=action_name,
-            was_correct=was_correct,
             reward_cfg=self.reward_cfg,
         )
+        if invalid_action:
+            reward += float(self.reward_cfg.get("invalid_action_penalty", -0.1))
         if terminated:
             reward += compute_terminal_reward(
                 state=self.state,
@@ -230,11 +265,8 @@ class ExamStrategyEnv(gym.Env):
         obs = self._get_obs()
         info = {
             "action_name": action_name,
-            "was_correct": was_correct,
-            "estimated_prob": estimated_prob,
+            "invalid_action": invalid_action,
             "remaining_time_sec": self.state.remaining_time_sec,
-            "total_score": self.state.total_score,
-            "solved_count": self.state.solved_count(),
         }
         return obs, float(reward), terminated, truncated, info
 
@@ -248,9 +280,8 @@ class ExamStrategyEnv(gym.Env):
 
         status_to_num = {
             ProblemStatus.NOT_VISITED: 0.0,
-            ProblemStatus.IN_PROGRESS: 1.0 / 4.0,
-            ProblemStatus.SOLVED: 2.0 / 4.0,
-            ProblemStatus.FAILED: 3.0 / 4.0,
+            ProblemStatus.IN_PROGRESS: 1.0 / 3.0,
+            ProblemStatus.SUBMITTED: 2.0 / 3.0,
             ProblemStatus.GIVEN_UP: 1.0,
         }
 
@@ -260,6 +291,7 @@ class ExamStrategyEnv(gym.Env):
             features.append(status_to_num[progress.status])
             features.append(float(np.clip(progress.time_spent_sec / max(self.total_time_sec, 1.0), 0.0, 1.0)))
             features.append(float(np.clip(problem.score / max(max_score, 1), 0.0, 1.0)))
+            features.append(float(np.clip(progress.confidence_score, 0.0, 1.0)))
             if self.reveal_difficulty:
                 # Optional ablation mode; default is hidden to model partial observability.
                 features.append(float(np.clip(problem.difficulty, 0.0, 1.0)))
@@ -273,4 +305,5 @@ class ExamStrategyEnv(gym.Env):
             return False
         if self.state.remaining_time_sec <= 0:
             return True
-        return self.state.is_all_terminal()
+        max_steps = int(self.exam_cfg.get("max_steps_per_episode", max(500, self.num_problems * 40)))
+        return self.state.step_count >= max_steps

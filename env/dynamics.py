@@ -76,14 +76,38 @@ def solve_more(
 
     spent = min(float(delta_time_sec), state.remaining_time_sec)
     progress = state.progress[problem_idx]
-    if progress.status in {ProblemStatus.SOLVED, ProblemStatus.FAILED, ProblemStatus.GIVEN_UP}:
-        return 0.0
-
+    if progress.status in {ProblemStatus.SUBMITTED, ProblemStatus.GIVEN_UP}:
+        progress.status = ProblemStatus.IN_PROGRESS
     progress.time_spent_sec += spent
     if progress.status == ProblemStatus.NOT_VISITED:
         progress.status = ProblemStatus.IN_PROGRESS
     state.remaining_time_sec -= spent
     return spent
+
+
+def _apply_hidden_result(state: ExamState, problem_idx: int, problem: Problem, is_correct: bool) -> None:
+    progress = state.progress[problem_idx]
+    prev_correct = progress.judged_correct
+    if prev_correct is True:
+        state.total_score -= float(problem.score)
+
+    progress.judged_correct = bool(is_correct)
+    if is_correct:
+        state.total_score += float(problem.score)
+
+
+def submission_confidence(
+    problem: Problem,
+    time_spent: float,
+    estimated_prob: float,
+    submit_count: int,
+) -> float:
+    time_ratio = time_spent / max(problem.avg_time, 1.0)
+    time_component = 0.25 + 0.45 * (1.0 - math.exp(-time_ratio))
+    prob_component = 0.30 * estimated_prob
+    retry_penalty = 0.08 * max(submit_count - 1, 0)
+    confidence = time_component + prob_component - retry_penalty
+    return _clamp(confidence)
 
 
 def submit_answer(
@@ -94,7 +118,7 @@ def submit_answer(
     rng: np.random.Generator,
 ) -> tuple[bool, float]:
     progress = state.progress[problem_idx]
-    if progress.status in {ProblemStatus.SOLVED, ProblemStatus.GIVEN_UP}:
+    if progress.status not in {ProblemStatus.IN_PROGRESS}:
         return False, 0.0
 
     prob = correct_prob(
@@ -105,18 +129,44 @@ def submit_answer(
     )
     is_correct = bool(rng.random() < prob)
     progress.submit_count += 1
-
-    if is_correct:
-        progress.status = ProblemStatus.SOLVED
-        state.total_score += float(problem.score)
-    else:
-        progress.status = ProblemStatus.FAILED
+    progress.status = ProblemStatus.SUBMITTED
+    progress.confidence_score = submission_confidence(
+        problem=problem,
+        time_spent=progress.time_spent_sec,
+        estimated_prob=prob,
+        submit_count=progress.submit_count,
+    )
+    _apply_hidden_result(state=state, problem_idx=problem_idx, problem=problem, is_correct=is_correct)
 
     return is_correct, prob
 
 
-def give_up_problem(state: ExamState, problem_idx: int) -> None:
+def guess_answer(
+    state: ExamState,
+    problem_idx: int,
+    problem: Problem,
+    student: StudentProfile,
+    rng: np.random.Generator,
+) -> tuple[bool, float]:
     progress = state.progress[problem_idx]
-    if progress.status in {ProblemStatus.SOLVED, ProblemStatus.FAILED, ProblemStatus.GIVEN_UP}:
-        return
+    if progress.status not in {ProblemStatus.IN_PROGRESS}:
+        return False, 0.0
+
+    if problem.problem_type == "objective" and problem.choice_rate:
+        choice_count = max(len(problem.choice_rate), 1)
+        uniform_prob = 1.0 / choice_count
+        correct_key = str(problem.actual_answer) if problem.actual_answer is not None else None
+        empirical_prob = float(problem.choice_rate.get(correct_key, uniform_prob))
+        prob = (1.0 - student.skill_guess) * uniform_prob + student.skill_guess * empirical_prob
+    else:
+        base_prob = 0.01 + 0.08 * student.skill_guess
+        prob = base_prob * (1.0 - 0.6 * problem.difficulty)
+
+    prob = _clamp(prob)
+    is_correct = bool(rng.random() < prob)
+    progress.submit_count += 1
     progress.status = ProblemStatus.GIVEN_UP
+    progress.confidence_score = _clamp(0.15 + 0.35 * prob)
+    _apply_hidden_result(state=state, problem_idx=problem_idx, problem=problem, is_correct=is_correct)
+
+    return is_correct, prob

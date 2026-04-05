@@ -74,7 +74,7 @@ def _episode_metrics(env: ExamStrategyEnv, skip_count: int, ep_reward: float, ep
         spent = float(progress.time_spent_sec)
         problem_times.append(spent)
         total_time += spent
-        if easy_mask[i] and progress.status == ProblemStatus.SOLVED:
+        if easy_mask[i] and progress.judged_correct is True:
             easy_solved += 1
         if hard_mask[i]:
             hard_time += spent
@@ -141,7 +141,11 @@ def evaluate_policy(
         while not (done or truncated):
             if rl_model is not None:
                 raw_action, _ = rl_model.predict(obs, deterministic=True)
-                action = _decode_dqn_action(raw_action) if is_dqn else raw_action
+                if is_dqn:
+                    num_action_types = int(base_env.action_space.nvec[1])
+                    action = _decode_dqn_action(raw_action, num_action_types=num_action_types)
+                else:
+                    action = raw_action
             else:
                 action = heuristic_action(base_env, policy_name)
 

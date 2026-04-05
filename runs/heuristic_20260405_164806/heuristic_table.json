@@ -1,0 +1,37 @@
+{
+  "rows": [
+    {
+      "policy_name": "index_order",
+      "mean_score": 100.0,
+      "mean_reward": 75.12499999999991,
+      "mean_easy_recovery_rate": 1.0,
+      "mean_hard_time_ratio": 0.20075187969924813,
+      "mean_skip_count": 0.0
+    },
+    {
+      "policy_name": "easy_first",
+      "mean_score": 100.0,
+      "mean_reward": 75.55999999999995,
+      "mean_easy_recovery_rate": 1.0,
+      "mean_hard_time_ratio": 0.1517857142857143,
+      "mean_skip_count": 0.0
+    },
+    {
+      "policy_name": "high_score_first",
+      "mean_score": 98.0,
+      "mean_reward": 69.67499999999993,
+      "mean_easy_recovery_rate": 1.0,
+      "mean_hard_time_ratio": 0.21416666666666667,
+      "mean_skip_count": 0.0
+    },
+    {
+      "policy_name": "score_time_ratio",
+      "mean_score": 96.0,
+      "mean_reward": 65.50499999999998,
+      "mean_easy_recovery_rate": 1.0,
+      "mean_hard_time_ratio": 0.20821942446043165,
+      "mean_skip_count": 0.0
+    }
+  ],
+  "episodes": 2
+}

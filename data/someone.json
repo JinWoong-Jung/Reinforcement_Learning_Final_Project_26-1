@@ -5,7 +5,7 @@
       "skill_global": 0.9,
       "skill_speed": 0.8,
       "skill_accuracy": 0.85,
-      "skill_guess": 0.50,
+      "skill_guess": 0.33,
       "topic_skill": {
         "number_system": 0.95,
         "algebra": 0.85,
