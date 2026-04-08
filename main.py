@@ -154,6 +154,7 @@ def main() -> None:
     config.setdefault("data", {})
     if args.exam_data:
         config["data"]["exam_path"] = args.exam_data
+        config["data"].pop("exam_paths", None)
     if args.student_data:
         config["data"]["student_path"] = args.student_data
     if args.student_preset:

@@ -9,7 +9,7 @@ from env.exam_env import ExamStrategyEnv
 from env.problem import Problem
 
 
-HeuristicFn = Callable[[ExamStrategyEnv], int]
+HeuristicFn = Callable[[ExamStrategyEnv], np.ndarray]
 
 
 @dataclass
@@ -23,40 +23,70 @@ class EpisodeStats:
 
 
 def target_time_budget(problem: Problem, policy_name: str) -> float:
+    hardness = 0.55 * float(problem.difficulty) + 0.45 * float(problem.error_rate)
+    base_budget = 45.0 + 90.0 * hardness
     if policy_name == "index_order":
-        return problem.avg_time * 0.95
+        return base_budget
     if policy_name == "easy_first":
-        return problem.avg_time * (0.75 if problem.score <= 3 else 0.60)
+        return base_budget * (0.90 if problem.score <= 3 else 0.75)
     if policy_name == "high_score_first":
-        return problem.avg_time * (1.15 if problem.score >= 4 else 0.70)
+        return base_budget * (1.20 if problem.score >= 4 else 0.85)
     if policy_name == "score_time_ratio":
-        return problem.avg_time * (1.00 if problem.score >= 4 else 0.65)
-    return problem.avg_time
+        return base_budget * (1.05 if problem.score >= 4 else 0.80)
+    return base_budget
 
 
-def policy_index_order(env: ExamStrategyEnv) -> int:
-    return 0
-
-
-def policy_easy_first(env: ExamStrategyEnv) -> int:
+def _current_budget_action(env: ExamStrategyEnv, policy_name: str) -> np.ndarray:
     assert env.state is not None
-    problem = env.problems[env.state.current_problem_idx]
-    budget = target_time_budget(problem, "easy_first")
-    return 0 if env.state.progress[env.state.current_problem_idx].time_spent_sec < budget else 1
+    current_idx = env.state.current_problem_idx
+    problem = env.problems[current_idx]
+    budget = target_time_budget(problem, policy_name)
+    progress = env.state.progress[current_idx]
+    if progress.time_spent_sec < budget:
+        return env.encode_solve_more_action()
+    return env.encode_next_action(_select_next_problem(env, policy_name))
 
 
-def policy_high_score_first(env: ExamStrategyEnv) -> int:
+def _select_next_problem(env: ExamStrategyEnv, policy_name: str) -> int:
     assert env.state is not None
-    problem = env.problems[env.state.current_problem_idx]
-    budget = target_time_budget(problem, "high_score_first")
-    return 0 if env.state.progress[env.state.current_problem_idx].time_spent_sec < budget else 1
+    candidates = [
+        idx
+        for idx, progress in enumerate(env.state.progress)
+        if idx != env.state.current_problem_idx
+    ]
+    if not candidates:
+        return env.state.current_problem_idx
+    if policy_name == "index_order":
+        return min(candidates)
+    if policy_name == "easy_first":
+        return min(candidates, key=lambda idx: (env.problems[idx].score, env.problems[idx].difficulty, idx))
+    if policy_name == "high_score_first":
+        return min(candidates, key=lambda idx: (-env.problems[idx].score, env.problems[idx].difficulty, idx))
+    if policy_name == "score_time_ratio":
+        return max(
+            candidates,
+            key=lambda idx: env.problems[idx].score / max(
+                0.55 * env.problems[idx].difficulty + 0.45 * env.problems[idx].error_rate,
+                0.05,
+            ),
+        )
+    return min(candidates)
 
 
-def policy_expected_score_time_ratio(env: ExamStrategyEnv) -> int:
-    assert env.state is not None
-    problem = env.problems[env.state.current_problem_idx]
-    budget = target_time_budget(problem, "score_time_ratio")
-    return 0 if env.state.progress[env.state.current_problem_idx].time_spent_sec < budget else 1
+def policy_index_order(env: ExamStrategyEnv) -> np.ndarray:
+    return _current_budget_action(env, "index_order")
+
+
+def policy_easy_first(env: ExamStrategyEnv) -> np.ndarray:
+    return _current_budget_action(env, "easy_first")
+
+
+def policy_high_score_first(env: ExamStrategyEnv) -> np.ndarray:
+    return _current_budget_action(env, "high_score_first")
+
+
+def policy_expected_score_time_ratio(env: ExamStrategyEnv) -> np.ndarray:
+    return _current_budget_action(env, "score_time_ratio")
 
 
 HEURISTIC_POLICIES: dict[str, HeuristicFn] = {
@@ -67,16 +97,10 @@ HEURISTIC_POLICIES: dict[str, HeuristicFn] = {
 }
 
 
-def heuristic_action(env: ExamStrategyEnv, policy_name: str) -> int:
+def heuristic_action(env: ExamStrategyEnv, policy_name: str) -> np.ndarray:
     selector = HEURISTIC_POLICIES.get(policy_name)
     if selector is None:
         raise ValueError(f"Unknown heuristic policy: {policy_name}")
-
-    if policy_name == "index_order":
-        assert env.state is not None
-        problem = env.problems[env.state.current_problem_idx]
-        budget = target_time_budget(problem, "index_order")
-        return 0 if env.state.progress[env.state.current_problem_idx].time_spent_sec < budget else 1
     return selector(env)
 
 

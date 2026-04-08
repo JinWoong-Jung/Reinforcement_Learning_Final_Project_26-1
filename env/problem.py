@@ -11,10 +11,8 @@ class Problem:
     difficulty_level: str
     difficulty: float
     score: int
-    avg_time: float
     error_rate: float
     problem_type: str
-    topic: str
     actual_answer: Any | None = None
     choice_rate: dict[str, float] | None = None
 
@@ -25,10 +23,8 @@ class Problem:
             difficulty_level=str(raw.get("difficulty_level", "unknown")),
             difficulty=float(raw["difficulty"]),
             score=int(raw["score"]),
-            avg_time=float(raw["avg_time"]),
             error_rate=float(raw["error_rate"]),
             problem_type=str(raw["problem_type"]),
-            topic=str(raw["topic"]),
             actual_answer=raw.get("actual_answer"),
             choice_rate={str(k): float(v) for k, v in raw.get("choice_rate", {}).items()} or None,
         )

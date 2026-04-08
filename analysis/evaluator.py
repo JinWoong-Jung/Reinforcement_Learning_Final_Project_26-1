@@ -13,7 +13,7 @@ from env.exam_env import ExamStrategyEnv
 from utils.io import save_json, save_results_csv
 
 
-HeuristicSelector = Callable[[ExamStrategyEnv], int]
+HeuristicSelector = Callable[[ExamStrategyEnv], np.ndarray]
 
 HEURISTIC_MAP: dict[str, HeuristicSelector] = dict(HEURISTIC_POLICIES)
 
@@ -28,6 +28,7 @@ class EpisodeRecord:
     remaining_time_sec: float
     time_spent_total: float
     problem_time_spent: list[float]
+    visit_order: list[int]
     score_timeline: list[float]
     used_time_timeline: list[float]
 
@@ -41,6 +42,7 @@ class EpisodeRecord:
             "remaining_time_sec": self.remaining_time_sec,
             "time_spent_total": self.time_spent_total,
             "problem_time_spent": self.problem_time_spent,
+            "visit_order": self.visit_order,
             "score_timeline": self.score_timeline,
             "used_time_timeline": self.used_time_timeline,
         }
@@ -64,6 +66,7 @@ def _episode_metrics(env: ExamStrategyEnv, ep_reward: float, episode: int, stude
         remaining_time_sec=float(env.state.remaining_time_sec),
         time_spent_total=float(total_time),
         problem_time_spent=problem_times,
+        visit_order=[idx + 1 for idx in env.state.visit_order],
         score_timeline=[],
         used_time_timeline=[],
     )

@@ -17,21 +17,20 @@ try:
     import gymnasium as gym
     from gymnasium import spaces
 except ImportError:  # pragma: no cover
-    try:
-        import gym
-        from gym import spaces
-    except ImportError:  # pragma: no cover
-        HAS_GYM = False
-        gym = None
-        spaces = None
+    HAS_GYM = False
+    gym = None
+    spaces = None
 
 try:
     from stable_baselines3 import DQN, PPO
+    from stable_baselines3.common.callbacks import BaseCallback, CallbackList
     from stable_baselines3.common.callbacks import CheckpointCallback
     from stable_baselines3.common.vec_env import DummyVecEnv
 except ImportError:  # pragma: no cover
     PPO = None
     DQN = None
+    BaseCallback = None
+    CallbackList = None
     CheckpointCallback = None
     DummyVecEnv = None
 
@@ -40,9 +39,14 @@ try:
 except ImportError:  # pragma: no cover
     torch = None
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover
+    tqdm = None
+
 
 class DiscreteActionWrapper:
-    """Converts MultiDiscrete([N, 4]) -> Discrete(N*4) for DQN."""
+    """Converts MultiDiscrete action spaces into a single Discrete space for DQN."""
 
     def __init__(self, env):
         self.env = env
@@ -71,9 +75,9 @@ class DiscreteActionWrapper:
 
     def action(self, action: int):
         a = int(action)
-        action_type = a % int(self._nvec[1])
-        problem_idx = a // int(self._nvec[1])
-        return np.array([problem_idx, action_type], dtype=np.int64)
+        next_target_choice = a % int(self._nvec[1])
+        action_type = a // int(self._nvec[1])
+        return np.array([action_type, next_target_choice], dtype=np.int64)
 
     def __getattr__(self, name):
         return getattr(self.env, name)
@@ -103,21 +107,91 @@ def _build_env(config: dict[str, Any], for_dqn: bool = False, seed: int | None =
 def _assert_sb3_available() -> None:
     if not HAS_GYM:
         raise ImportError("gymnasium or gym is required for RL training.")
-    if PPO is None or DQN is None or DummyVecEnv is None or CheckpointCallback is None:
+    if PPO is None or DQN is None or DummyVecEnv is None or CheckpointCallback is None or BaseCallback is None or CallbackList is None:
         raise ImportError(
             "stable-baselines3 is not installed. Install with: pip install stable-baselines3[extra]"
         )
 
 
 def _select_torch_device() -> str:
+    return _select_torch_device_from_value("auto")
+
+
+def _select_torch_device_from_value(device_pref: str) -> str:
+    pref = str(device_pref).lower()
     if torch is None:
         return "cpu"
+
+    if pref == "cpu":
+        return "cpu"
+    if pref == "cuda":
+        if torch.cuda.is_available():
+            return "cuda"
+        raise ValueError("Requested device 'cuda' but CUDA is not available.")
+    if pref == "mps":
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            return "mps"
+        raise ValueError("Requested device 'mps' but MPS is not available.")
+    if pref != "auto":
+        raise ValueError("training.device must be one of: auto, cpu, cuda, mps")
+
     if torch.cuda.is_available():
         return "cuda"
     mps_backend = getattr(torch.backends, "mps", None)
     if mps_backend is not None and mps_backend.is_available():
         return "mps"
     return "cpu"
+
+
+class ProgressPrinterCallback(BaseCallback if BaseCallback is not None else object):
+    def __init__(self, total_timesteps: int, print_freq: int) -> None:
+        if BaseCallback is not None:
+            super().__init__()
+        self.total_timesteps = max(int(total_timesteps), 1)
+        self.print_freq = max(int(print_freq), 1)
+        self._last_print = 0
+        self._pbar = None
+        self._last_pbar_step = 0
+
+    def _on_training_start(self) -> None:
+        if tqdm is not None:
+            self._pbar = tqdm(total=self.total_timesteps, desc="train", unit="step", dynamic_ncols=True)
+
+    def _on_training_end(self) -> None:
+        if self._pbar is not None:
+            remaining = self.num_timesteps - self._last_pbar_step
+            if remaining > 0:
+                self._pbar.update(remaining)
+            self._pbar.close()
+            self._pbar = None
+
+    def _on_step(self) -> bool:
+        if self._pbar is not None:
+            delta = self.num_timesteps - self._last_pbar_step
+            if delta > 0:
+                self._pbar.update(delta)
+                self._last_pbar_step = self.num_timesteps
+        if self.num_timesteps - self._last_print >= self.print_freq or self.num_timesteps >= self.total_timesteps:
+            progress = min(100.0, 100.0 * self.num_timesteps / self.total_timesteps)
+            if self._pbar is None:
+                print(f"[train] {self.num_timesteps}/{self.total_timesteps} steps ({progress:.1f}%)")
+            self._last_print = self.num_timesteps
+        return True
+
+
+def _build_callbacks(paths: dict[str, str], train_cfg: dict[str, Any]):
+    total_steps = int(train_cfg.get("total_steps", 500000))
+    checkpoint_freq = int(train_cfg.get("checkpoint_freq", max(1000, total_steps // 10)))
+    progress_log_freq = int(train_cfg.get("progress_log_freq", max(1000, total_steps // 20)))
+
+    checkpoint = CheckpointCallback(
+        save_freq=checkpoint_freq,
+        save_path=paths["model"],
+        name_prefix=str(train_cfg.get("checkpoint_prefix", "ckpt")),
+    )
+    progress = ProgressPrinterCallback(total_timesteps=total_steps, print_freq=progress_log_freq)
+    return CallbackList([checkpoint, progress])
 
 
 def evaluate_trained_model(
@@ -166,9 +240,12 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
     vec_env = DummyVecEnv([lambda: _build_env(config=config, for_dqn=False, seed=base_seed)])
     ppo_cfg = config.get("ppo", {})
     train_cfg = config.get("training", {})
-    device = _select_torch_device()
-    print(f"[train_ppo] selected device: {device}")
+    device = _select_torch_device_from_value(str(train_cfg.get("device", "auto")))
+    total_steps = int(train_cfg.get("total_steps", 500000))
+    print(f"[train_ppo] device={device} total_steps={total_steps} eval_episodes={int(train_cfg.get('eval_episodes', 100))}")
+    print(f"[train_ppo] output_dir={paths['base']}")
 
+    net_arch = ppo_cfg.get("net_arch", [64, 64])
     model = PPO(
         policy="MlpPolicy",
         env=vec_env,
@@ -181,21 +258,19 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
         n_steps=int(ppo_cfg.get("n_steps", 2048)),
         batch_size=int(ppo_cfg.get("batch_size", 64)),
         n_epochs=int(ppo_cfg.get("n_epochs", 10)),
+        policy_kwargs=dict(net_arch=list(net_arch)),
         device=device,
         seed=base_seed,
         tensorboard_log=paths["log"],
-        verbose=1,
+        verbose=0,
     )
 
-    callback = CheckpointCallback(
-        save_freq=max(1000, int(train_cfg.get("total_steps", 500000)) // 10),
-        save_path=paths["model"],
-        name_prefix="ppo_ckpt",
-    )
-    model.learn(total_timesteps=int(train_cfg.get("total_steps", 500000)), callback=callback)
+    callbacks = _build_callbacks(paths=paths, train_cfg={**train_cfg, "checkpoint_prefix": "ppo_ckpt"})
+    model.learn(total_timesteps=total_steps, callback=callbacks)
 
     final_model_path = os.path.join(paths["model"], "ppo_final")
     model.save(final_model_path)
+    print(f"[train_ppo] final_model={final_model_path}.zip")
 
     metrics = evaluate_trained_model(
         model=model,
@@ -209,6 +284,7 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
         yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
     with open(os.path.join(paths["eval"], "ppo_eval.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
+    print(f"[train_ppo] eval_mean_score={metrics['mean_score']:.4f} eval_mean_reward={metrics['mean_reward']:.4f}")
 
     return {"paths": paths, "final_model_path": final_model_path, "eval": metrics}
 
@@ -222,8 +298,10 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
     vec_env = DummyVecEnv([lambda: _build_env(config=config, for_dqn=True, seed=base_seed)])
     dqn_cfg = config.get("dqn", {})
     train_cfg = config.get("training", {})
-    device = _select_torch_device()
-    print(f"[train_dqn] selected device: {device}")
+    device = _select_torch_device_from_value(str(train_cfg.get("device", "auto")))
+    total_steps = int(train_cfg.get("total_steps", 500000))
+    print(f"[train_dqn] device={device} total_steps={total_steps} eval_episodes={int(train_cfg.get('eval_episodes', 100))}")
+    print(f"[train_dqn] output_dir={paths['base']}")
 
     model = DQN(
         policy="MlpPolicy",
@@ -241,18 +319,15 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
         device=device,
         seed=base_seed,
         tensorboard_log=paths["log"],
-        verbose=1,
+        verbose=0,
     )
 
-    callback = CheckpointCallback(
-        save_freq=max(1000, int(train_cfg.get("total_steps", 500000)) // 10),
-        save_path=paths["model"],
-        name_prefix="dqn_ckpt",
-    )
-    model.learn(total_timesteps=int(train_cfg.get("total_steps", 500000)), callback=callback)
+    callbacks = _build_callbacks(paths=paths, train_cfg={**train_cfg, "checkpoint_prefix": "dqn_ckpt"})
+    model.learn(total_timesteps=total_steps, callback=callbacks)
 
     final_model_path = os.path.join(paths["model"], "dqn_final")
     model.save(final_model_path)
+    print(f"[train_dqn] final_model={final_model_path}.zip")
 
     metrics = evaluate_trained_model(
         model=model,
@@ -266,6 +341,7 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
         yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
     with open(os.path.join(paths["eval"], "dqn_eval.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
+    print(f"[train_dqn] eval_mean_score={metrics['mean_score']:.4f} eval_mean_reward={metrics['mean_reward']:.4f}")
 
     return {"paths": paths, "final_model_path": final_model_path, "eval": metrics}
 

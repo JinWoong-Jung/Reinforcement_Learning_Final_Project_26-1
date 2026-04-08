@@ -1,5 +1,0 @@
-policy_name,mean_score,mean_reward,mean_easy_recovery_rate,mean_hard_time_ratio,mean_skip_count
-index_order,100.0,75.12499999999991,1.0,0.20075187969924813,0.0
-easy_first,100.0,75.55999999999995,1.0,0.1517857142857143,0.0
-high_score_first,98.0,69.67499999999993,1.0,0.21416666666666667,0.0
-score_time_ratio,96.0,65.50499999999998,1.0,0.20821942446043165,0.0
