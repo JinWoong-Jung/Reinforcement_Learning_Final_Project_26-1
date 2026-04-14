@@ -62,25 +62,26 @@ python analysis/run_comparison.py --config configs/default.yaml --runs-dir runs/
 
 ## Ablation 실험
 
-`configs/ablation/` 에 5개 축의 ablation config가 준비되어 있다.
+`configs/phaseA/` 아래에 Phase A ablation config가 그룹별 폴더로 정리되어 있다.
+`group1_switch_cost/`, `group2_action_granularity/`, `group3_student_skill/`
+Phase B RL 관련 config는 `configs/phaseB/` 아래에 정리되어 있다.
 
 | 축 | 파일 |
 |---|---|
-| 확률 모델 | `prob_no_ambiguity.yaml`, `prob_no_subjective_floor.yaml`, `prob_anchor_difficulty.yaml` |
 | 보상 구조 | `reward_pure.yaml`, `reward_shaping.yaml` |
-| 전환 비용 | `switch_cost_0s.yaml`, `switch_cost_5s.yaml`, `switch_cost_20s.yaml` |
-| 학생 분포 | `student_fixed_mid.yaml`, `student_mixed.yaml` |
-| 행동 단위 | `action_10s.yaml`, `action_60s.yaml` |
+| 전환 비용 | `switch_cost_0s.yaml`, `switch_cost_5s.yaml`, `switch_cost_10s.yaml`, `switch_cost_20s.yaml` |
+| 학생 능력 | `student_low.yaml`, `student_mid.yaml`, `student_high.yaml` |
+| 행동 단위 | `action_10s.yaml`, `action_30s.yaml`, `action_60s.yaml` |
 
 **Phase A — 휴리스틱으로 먼저 확인:**
 ```bash
-python main.py --mode heuristic --config configs/ablation/switch_cost_0s.yaml
+python main.py --mode heuristic --config configs/phaseA/group1_switch_cost/switch_cost_0s.yaml
 ```
 
 **Phase B — RL 학습 후 비교:**
 ```bash
-python main.py --mode train --config configs/ablation/reward_shaping.yaml
-python analysis/run_comparison.py --config configs/ablation/reward_shaping.yaml --runs-dir runs/
+python main.py --mode train --config configs/phaseB/reward/reward_shaping.yaml
+python analysis/run_comparison.py --config configs/phaseB/reward/reward_shaping.yaml --runs-dir runs/
 ```
 
 ## 테스트

@@ -1,0 +1,156 @@
+# ABLATION 2-B: Reward — with hand-crafted shaping terms
+# Baseline comparison: reward_shaping vs reward_pure.yaml
+#
+# What changes (vs pure reward):
+#   next.penalty         = -0.01   penalise every switch to discourage thrashing
+#   next.coverage_bonus  = 0.3     reward for visiting new problems
+#   solve_more.saturation penalty  = signal to stop when confidence is high
+#   solve_more.low_marginal_gain   = penalise wasteful solve_more steps
+#   solve_more.streak penalty      = penalise staying on one problem too long
+#   terminal.completion_bonus      = reward for covering more problems
+#   terminal.timeout_penalty       = discourage running out of time unused
+#   terminal.concentration penalty = discourage over-investing in one problem
+#
+# Hypothesis: shaping should accelerate early learning but may hurt final
+# performance by biasing the policy away from the pure score objective.
+# Compare learning curves and final scores between this and reward_pure.yaml.
+
+experiment:
+  name: "ablation_reward_shaping"
+  seed: 42
+
+exam:
+  total_time_sec: 6000
+  action_time_unit_sec: 30
+  switch_time_sec: 10
+  randomize_start_problem: true
+  allow_agent_selected_start_problem: false
+  reveal_difficulty: false
+  difficulty_time_priors_sec:
+    하: 60
+    중하: 60
+    중: 120
+    상: 300
+    최상: 600
+  first_pass:
+    enabled: true
+    prefer_sequential: true
+    enforce_unvisited_before_revisit: true
+  revisit_policy:
+    prefer_worked_problems: true
+    cooldown_entries: 2
+  solve_more_constraints:
+    enabled: true
+    objective_conf_threshold: 0.95
+    subjective_conf_threshold: 0.95
+    streak_threshold: 20
+
+dynamics:
+  anchor_source: "correct_rate"
+  subjective_floor: 0.0
+  ambiguity_weight: 0.5
+  theta_scale: 3.0
+  beta: 2.0
+  alpha: 2.0
+  tau: 60.0
+  ability_weights:
+    skill_global: 0.45
+    skill_accuracy: 0.30
+    skill_speed: 0.25
+
+# Shaping terms ON  ← ABLATION
+reward:
+  next:
+    penalty: -0.01               # mild switch cost in reward space
+    new_problem_bonus: 0.02      # first visit to a new problem
+    coverage_bonus_scale: 0.30   # scales with (unvisited fraction)^power
+    coverage_bonus_power: 2.0    # concave bonus (highest early on)
+    no_work_revisit_penalty: -0.05
+    first_pass:
+      sequential_bonus: 0.01     # small bonus for visiting in order
+      revisit_penalty: -0.02     # small penalty for revisiting before first pass done
+    difficulty_exit:
+      easy:
+        low_conf_threshold: 0.5
+        low_conf_penalty: -0.05
+        ready_threshold: 0.75
+        ready_bonus: 0.05
+      mid:
+        low_conf_threshold: 0.4
+        low_conf_penalty: -0.03
+        ready_threshold: 0.65
+        ready_bonus: 0.04
+      hard:
+        defer_threshold: 0.40
+        defer_bonus: 0.03
+        ready_threshold: 0.35
+        ready_bonus: 0.05
+  solve_more:
+    penalty: -0.002              # tiny per-step cost for time spent
+    low_marginal_gain:
+      subjective_threshold: 0.01
+      objective_threshold: 0.01
+      penalty: -0.015            # penalise near-zero confidence gains
+    saturation:
+      subjective: {threshold: 0.92, penalty: -0.02}
+      objective:  {threshold: 0.92, penalty: -0.04}
+    streak:
+      threshold: 10
+      penalty: -0.01
+      extra_penalty_scale: -0.003
+      max_extra_steps: 30
+  terminal:
+    timeout_penalty: -0.5
+    completion_bonus: 3.0        # proportional to coverage fraction
+    concentration:
+      top1: {threshold: 0.60, penalty_scale: -5.0}
+      top2: {threshold: 0.85, penalty_scale: -4.0}
+
+training:
+  algorithm: "ppo"
+  device: "cpu"
+  total_steps: 500000
+  eval_episodes: 100
+  progress_log_freq: 50000
+  checkpoint_freq: 50000
+  score_log_freq: 50000
+  score_log_eval_episodes: 10
+  strategy_constraint:
+    name: null
+
+evaluation:
+  solved:
+    subjective_conf_threshold: 0.5
+    objective_conf_threshold: 0.5
+    objective_margin_threshold: 0.05
+
+ppo:
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.02
+  vf_coef: 0.5
+  n_steps: 4096
+  batch_size: 128
+  n_epochs: 10
+  net_arch: [256, 256]
+
+dqn:
+  learning_rate: 1.0e-4
+  gamma: 0.99
+  buffer_size: 100000
+  learning_starts: 10000
+  batch_size: 128
+  train_freq: 4
+  target_update_interval: 1000
+  exploration_initial_eps: 1.0
+  exploration_final_eps: 0.05
+  exploration_fraction: 0.2
+
+data:
+  exam_paths:
+    - data/25_math_calculus.json
+    - data/25_math_geometry.json
+    - data/25_math_prob_stat.json
+  student_preset_path: data/student_level_presets.json

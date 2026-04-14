@@ -11,9 +11,9 @@ exam:
   randomize_start_problem: false
   reveal_difficulty: false
   difficulty_time_priors_sec:
-    하: 30
+    하: 60
     중하: 60
-    중: 90
+    중: 120
     상: 300
     최상: 600
   difficulty_target_confidences:

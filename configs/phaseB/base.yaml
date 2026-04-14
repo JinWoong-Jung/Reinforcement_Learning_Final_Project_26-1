@@ -1,17 +1,27 @@
-# Global experiment settings
+# Phase A recommended baseline
+# Selected from Phase A ablations:
+# - switch_time_sec = 10
+# - action_time_unit_sec = 60
+# - anchor_source = "correct_rate"
+# - ambiguity_weight kept
+# - subjective_floor = 0.0
+#
+# This config is intended as the default starting point for Phase B RL runs.
+# Student level is intentionally left unspecified so low/mid/high policies can
+# be trained separately via CLI override or per-run config copies.
+
 experiment:
-  name: "RLProject"
+  name: "phase_a"
   seed: 42
 
-# Exam environment settings
 exam:
-  total_time_sec: 6000          # 100 minutes
+  total_time_sec: 6000
   num_problems: 30
-  action_time_unit_sec: 30      # e.g., 30 or 60 seconds
-  switch_time_sec: 10           # time cost for moving to another problem
+  action_time_unit_sec: 60
+  switch_time_sec: 10
   randomize_start_problem: true
-  allow_agent_selected_start_problem: false   # true: first action selects start problem (no switch cost)
-  reveal_difficulty: false      # student/agent cannot directly observe true difficulty
+  allow_agent_selected_start_problem: false
+  reveal_difficulty: false
   difficulty_time_priors_sec:
     하: 60
     중하: 60
@@ -31,31 +41,19 @@ exam:
     subjective_conf_threshold: 0.95
     streak_threshold: 20
 
-# Confidence dynamics model
-# p_i(t | s) = floor + (1 - floor) * sigmoid(theta - beta*d - gamma*a + alpha*log(1 + t/tau))
-#   floor  = guessing probability (1/K for objective, subjective_floor for subjective)
-#   theta  = theta_scale * (ability - 0.5)   -- student ability logit
-#   d      = difficulty anchor (1 - correct_rate, or difficulty as fallback)
-#   a      = choice entropy in [0,1]          -- problem ambiguity
-#   alpha  = time learning rate
-#   tau    = time scale in seconds
 dynamics:
-  anchor_source: "correct_rate"      # "correct_rate" (preferred) or "difficulty"
-  subjective_floor: 0.0              # subjective problems start from zero prior
-  ambiguity_weight: 0.5              # gamma: how much choice entropy slows learning
-  theta_scale: 3.0                   # how strongly student ability shifts the logit
-  beta: 2.0                          # how strongly difficulty anchor suppresses confidence
-  alpha: 2.0                         # time learning rate
-  tau: 60.0                          # time scale in seconds (log(1 + t/tau))
+  anchor_source: "correct_rate"
+  subjective_floor: 0.0
+  ambiguity_weight: 0.5
+  theta_scale: 3.0
+  beta: 2.0
+  alpha: 2.0
+  tau: 60.0
   ability_weights:
     skill_global: 0.45
     skill_accuracy: 0.30
     skill_speed: 0.25
 
-# Reward configuration
-# Base reward is delta expected_total_score (pure reward form).
-# All shaping terms default to 0 / off.
-# For ablation experiments, override individual keys in a separate config.
 reward:
   next:
     penalty: 0.0
@@ -111,25 +109,22 @@ reward:
         threshold: 1.1
         penalty_scale: 0.0
 
-# Agent training config
 training:
-  algorithm: "ppo"              # options: ppo, dqn
-  device: "cpu"                # options: auto, cpu, cuda, mps
+  algorithm: "ppo"
+  device: "cpu"
   total_steps: 1000000
   eval_episodes: 100
   progress_log_freq: 10000
   checkpoint_freq: 10000
   strategy_constraint:
-    name: null                  # fixed_order_free_time, equal_time_free_order, or null
+    name: null
 
-# Evaluation / solved criteria
 evaluation:
   solved:
     subjective_conf_threshold: 0.5
     objective_conf_threshold: 0.5
     objective_margin_threshold: 0.05
 
-# PPO hyperparameters (used when training.algorithm == "ppo")
 ppo:
   learning_rate: 3.0e-4
   gamma: 0.99
@@ -137,12 +132,11 @@ ppo:
   clip_range: 0.2
   ent_coef: 0.02
   vf_coef: 0.5
-  n_steps: 4096            # increased: captures more complete episodes per update
+  n_steps: 4096
   batch_size: 128
   n_epochs: 10
-  net_arch: [256, 256]     # larger network for 212-dim observation (was default [64, 64])
+  net_arch: [256, 256]
 
-# DQN hyperparameters (used when training.algorithm == "dqn")
 dqn:
   learning_rate: 1.0e-4
   gamma: 0.99
@@ -155,7 +149,6 @@ dqn:
   exploration_final_eps: 0.05
   exploration_fraction: 0.2
 
-# Data sources
 data:
   exam_paths:
     - data/25_math_calculus.json
