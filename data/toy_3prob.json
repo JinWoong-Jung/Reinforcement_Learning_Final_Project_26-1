@@ -1,0 +1,40 @@
+{
+  "exam_id": "toy_3prob",
+  "subject": "toy",
+  "total_time_sec": 300,
+  "problems": [
+    {
+      "pid": 1,
+      "difficulty_level": "하",
+      "difficulty": 0.10,
+      "score": 4,
+      "correct_rate": 0.90,
+      "error_rate": 0.10,
+      "problem_type": "objective",
+      "actual_answer": 1,
+      "choice_rate": {"1": 0.90, "2": 0.03, "3": 0.03, "4": 0.02, "5": 0.02}
+    },
+    {
+      "pid": 2,
+      "difficulty_level": "중",
+      "difficulty": 0.45,
+      "score": 3,
+      "correct_rate": 0.55,
+      "error_rate": 0.45,
+      "problem_type": "objective",
+      "actual_answer": 2,
+      "choice_rate": {"1": 0.20, "2": 0.55, "3": 0.12, "4": 0.08, "5": 0.05}
+    },
+    {
+      "pid": 3,
+      "difficulty_level": "상",
+      "difficulty": 0.85,
+      "score": 4,
+      "correct_rate": 0.15,
+      "error_rate": 0.85,
+      "problem_type": "subjective",
+      "actual_answer": 42,
+      "choice_rate": {"correct": 0.15}
+    }
+  ]
+}

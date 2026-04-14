@@ -9,13 +9,46 @@ from agents.heuristic_agents import (
     HEURISTIC_POLICIES,
     heuristic_action,
 )
+from agents.train_rl import _build_env
 from env.exam_env import ExamStrategyEnv
+from env.problem import Problem
+from env.state import ExamState, solved_criteria_from_config
 from utils.io import save_json, save_results_csv
 
 
 HeuristicSelector = Callable[[ExamStrategyEnv], np.ndarray]
 
 HEURISTIC_MAP: dict[str, HeuristicSelector] = dict(HEURISTIC_POLICIES)
+
+
+def realized_score_rollout(
+    state: ExamState,
+    problems: list[Problem],
+    n_rollouts: int = 100,
+    rng: np.random.Generator | None = None,
+) -> tuple[float, float]:
+    """Sample realized scores using Bernoulli draws per problem.
+
+    Each rollout independently samples:
+        outcome_i ~ Bernoulli(P_i(t_i))   where P_i = effective_confidence
+        realized  = sum_i outcome_i * w_i
+
+    Returns:
+        (mean_realized_score, std_realized_score) over n_rollouts.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    probs = np.array(
+        [progress.effective_confidence(problem) for progress, problem in zip(state.progress, problems)],
+        dtype=np.float64,
+    )
+    weights = np.array([float(problem.score) for problem in problems], dtype=np.float64)
+
+    # (n_rollouts, n_problems) boolean matrix
+    outcomes = rng.random((n_rollouts, len(problems))) < probs[np.newaxis, :]
+    scores = (outcomes * weights[np.newaxis, :]).sum(axis=1)
+    return float(np.mean(scores)), float(np.std(scores))
 
 
 @dataclass
@@ -25,12 +58,23 @@ class EpisodeRecord:
     total_reward: float
     total_score: float
     solved_count: int
+    visited_count: int
+    coverage_fraction: float
+    objective_dominance_rate: float
+    mean_subjective_confidence: float
+    subjective_solved_rate: float
+    objective_solved_rate: float
+    top1_time_share: float
+    top2_time_share: float
     remaining_time_sec: float
+    steps: int
     time_spent_total: float
     problem_time_spent: list[float]
     visit_order: list[int]
     score_timeline: list[float]
     used_time_timeline: list[float]
+    realized_score_mean: float = 0.0
+    realized_score_std: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -38,8 +82,19 @@ class EpisodeRecord:
             "student_level": self.student_level,
             "total_reward": self.total_reward,
             "total_score": self.total_score,
+            "realized_score_mean": self.realized_score_mean,
+            "realized_score_std": self.realized_score_std,
             "solved_count": self.solved_count,
+            "visited_count": self.visited_count,
+            "coverage_fraction": self.coverage_fraction,
+            "objective_dominance_rate": self.objective_dominance_rate,
+            "mean_subjective_confidence": self.mean_subjective_confidence,
+            "subjective_solved_rate": self.subjective_solved_rate,
+            "objective_solved_rate": self.objective_solved_rate,
+            "top1_time_share": self.top1_time_share,
+            "top2_time_share": self.top2_time_share,
             "remaining_time_sec": self.remaining_time_sec,
+            "steps": self.steps,
             "time_spent_total": self.time_spent_total,
             "problem_time_spent": self.problem_time_spent,
             "visit_order": self.visit_order,
@@ -48,7 +103,13 @@ class EpisodeRecord:
         }
 
 
-def _episode_metrics(env: ExamStrategyEnv, ep_reward: float, episode: int, student_level: str) -> EpisodeRecord:
+def _episode_metrics(
+    env: ExamStrategyEnv,
+    ep_reward: float,
+    episode: int,
+    student_level: str,
+    solved_criteria: dict[str, float],
+) -> EpisodeRecord:
     assert env.state is not None
     total_time = 0.0
     problem_times: list[float] = []
@@ -56,14 +117,28 @@ def _episode_metrics(env: ExamStrategyEnv, ep_reward: float, episode: int, stude
         spent = float(progress.time_spent_sec)
         problem_times.append(spent)
         total_time += spent
+    sorted_times = sorted(problem_times, reverse=True)
+    top1_time = sorted_times[0] if sorted_times else 0.0
+    top2_time = sum(sorted_times[:2]) if sorted_times else 0.0
+    top1_time_share = float(top1_time / total_time) if total_time > 0 else 0.0
+    top2_time_share = float(top2_time / total_time) if total_time > 0 else 0.0
 
     return EpisodeRecord(
         episode=episode,
         student_level=student_level,
         total_reward=float(ep_reward),
         total_score=float(env.state.total_score),
-        solved_count=int(env.state.solved_count()),
+        solved_count=int(env.state.solved_count(env.problems, **solved_criteria)),
+        visited_count=int(env.state.visited_count()),
+        coverage_fraction=float(env.state.coverage_fraction()),
+        objective_dominance_rate=float(env.state.objective_dominance_rate(env.problems)),
+        mean_subjective_confidence=float(env.state.mean_subjective_confidence(env.problems)),
+        subjective_solved_rate=float(env.state.subjective_solved_rate(env.problems, **solved_criteria)),
+        objective_solved_rate=float(env.state.objective_solved_rate(env.problems, **solved_criteria)),
+        top1_time_share=top1_time_share,
+        top2_time_share=top2_time_share,
         remaining_time_sec=float(env.state.remaining_time_sec),
+        steps=int(env.state.step_count),
         time_spent_total=float(total_time),
         problem_time_spent=problem_times,
         visit_order=[idx + 1 for idx in env.state.visit_order],
@@ -82,11 +157,13 @@ def evaluate_policy(
     rl_model: Any | None = None,
     rl_algorithm: str = "ppo",
     seed: int = 42,
+    realized_rollouts: int = 100,
 ) -> dict[str, Any]:
     if policy_name not in HEURISTIC_MAP and rl_model is None:
         raise ValueError("For non-heuristic policy_name, provide rl_model.")
 
     records: list[EpisodeRecord] = []
+    solved_criteria = solved_criteria_from_config(config)
     for ep in range(episodes):
         ep_student_level = "mixed"
         reset_options: dict[str, Any] = {}
@@ -101,8 +178,12 @@ def evaluate_policy(
             reset_options["student_level"] = ep_level
             ep_student_level = ep_level
 
-        base_env = ExamStrategyEnv(config=config, random_seed=seed + ep)
         is_dqn = rl_model is not None and rl_algorithm.lower() == "dqn"
+        base_env = (
+            _build_env(config=config, for_dqn=is_dqn, seed=seed + ep)
+            if rl_model is not None
+            else ExamStrategyEnv(config=config, random_seed=seed + ep)
+        )
         obs, _ = base_env.reset(seed=seed + ep, options=reset_options)
 
         done = False
@@ -125,9 +206,21 @@ def evaluate_policy(
             score_timeline.append(float(state.total_score))
             used_time_timeline.append(float(base_env.total_time_sec - state.remaining_time_sec))
 
-        record = _episode_metrics(base_env, ep_reward, ep, ep_student_level)
+        record = _episode_metrics(base_env, ep_reward, ep, ep_student_level, solved_criteria)
         record.score_timeline = score_timeline
         record.used_time_timeline = used_time_timeline
+
+        if realized_rollouts > 0:
+            rollout_rng = np.random.default_rng(seed + ep + 100000)
+            r_mean, r_std = realized_score_rollout(
+                state=base_env.state,
+                problems=base_env.problems,
+                n_rollouts=realized_rollouts,
+                rng=rollout_rng,
+            )
+            record.realized_score_mean = r_mean
+            record.realized_score_std = r_std
+
         records.append(record)
 
     summaries = _build_summary(records, policy_name)
@@ -150,7 +243,20 @@ def _build_summary(records: list[EpisodeRecord], policy_name: str) -> dict[str, 
     overall = {
         "policy_name": policy_name,
         "mean_score": _mean([r.total_score for r in records]),
+        "mean_realized_score": _mean([r.realized_score_mean for r in records]),
+        "mean_realized_score_std": _mean([r.realized_score_std for r in records]),
         "mean_reward": _mean([r.total_reward for r in records]),
+        "mean_solved_count": _mean([float(r.solved_count) for r in records]),
+        "mean_visited_count": _mean([float(r.visited_count) for r in records]),
+        "mean_coverage_fraction": _mean([r.coverage_fraction for r in records]),
+        "mean_objective_dominance_rate": _mean([r.objective_dominance_rate for r in records]),
+        "mean_subjective_confidence": _mean([r.mean_subjective_confidence for r in records]),
+        "mean_subjective_solved_rate": _mean([r.subjective_solved_rate for r in records]),
+        "mean_objective_solved_rate": _mean([r.objective_solved_rate for r in records]),
+        "mean_top1_time_share": _mean([r.top1_time_share for r in records]),
+        "mean_top2_time_share": _mean([r.top2_time_share for r in records]),
+        "mean_remaining_time_sec": _mean([r.remaining_time_sec for r in records]),
+        "mean_steps": _mean([float(r.steps) for r in records]),
     }
 
     by_level: dict[str, dict[str, float]] = {}
@@ -158,7 +264,20 @@ def _build_summary(records: list[EpisodeRecord], policy_name: str) -> dict[str, 
         chunk = [r for r in records if r.student_level == level]
         by_level[level] = {
             "mean_score": _mean([r.total_score for r in chunk]),
+            "mean_realized_score": _mean([r.realized_score_mean for r in chunk]),
+            "mean_realized_score_std": _mean([r.realized_score_std for r in chunk]),
             "mean_reward": _mean([r.total_reward for r in chunk]),
+            "mean_solved_count": _mean([float(r.solved_count) for r in chunk]),
+            "mean_visited_count": _mean([float(r.visited_count) for r in chunk]),
+            "mean_coverage_fraction": _mean([r.coverage_fraction for r in chunk]),
+            "mean_objective_dominance_rate": _mean([r.objective_dominance_rate for r in chunk]),
+            "mean_subjective_confidence": _mean([r.mean_subjective_confidence for r in chunk]),
+            "mean_subjective_solved_rate": _mean([r.subjective_solved_rate for r in chunk]),
+            "mean_objective_solved_rate": _mean([r.objective_solved_rate for r in chunk]),
+            "mean_top1_time_share": _mean([r.top1_time_share for r in chunk]),
+            "mean_top2_time_share": _mean([r.top2_time_share for r in chunk]),
+            "mean_remaining_time_sec": _mean([r.remaining_time_sec for r in chunk]),
+            "mean_steps": _mean([float(r.steps) for r in chunk]),
         }
 
     num_problems = len(records[0].problem_time_spent) if records else 0
