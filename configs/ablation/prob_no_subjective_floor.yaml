@@ -1,11 +1,12 @@
 # ABLATION 1-B: Probability model — subjective floor OFF (epsilon = 0)
-# Baseline comparison: prob_no_subjective_floor vs default (subjective_floor: 0.02)
+# Baseline comparison: prob_no_subjective_floor vs action_60s baseline (subjective_floor: 0.02)
 #
 # What changes: dynamics.subjective_floor = 0.0
 #   → Subjective problems start with P(t=0) = 0 (pure cold-start).
 #   → Without any base rate, the agent has a stronger gradient signal to
 #     avoid un-worked subjective problems entirely.
-# What stays the same: objective floor (1/K), ambiguity, anchor, reward.
+# What stays the same: the selected 60-second baseline environment and all
+# other dynamics terms (objective floor, ambiguity, anchor, reward).
 #
 # Expected result: subjective problems may be underweighted; realized score
 # on subjective items should drop vs default.
@@ -16,7 +17,7 @@ experiment:
 
 exam:
   total_time_sec: 6000
-  action_time_unit_sec: 30
+  action_time_unit_sec: 60
   switch_time_sec: 10
   randomize_start_problem: true
   allow_agent_selected_start_problem: false

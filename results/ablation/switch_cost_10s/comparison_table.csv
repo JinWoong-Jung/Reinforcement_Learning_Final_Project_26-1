@@ -1,0 +1,8 @@
+policy,type,mean_expected_score,mean_realized_score,mean_realized_score_std,mean_reward,mean_coverage_fraction,mean_solved_count,mean_steps
+marginal_gain_greedy,heuristic,89.8011,89.781,5.5803,68.7611,1.0,30.0,289.74
+random,heuristic,83.7576,83.8512,6.4135,62.7176,1.0,29.22,313.94
+equal_time,heuristic,80.8866,80.8956,7.2379,59.8466,1.0,30.0,398.28
+high_score_first,heuristic,78.3674,78.3626,7.6847,57.3274,1.0,30.0,445.28
+score_time_ratio,heuristic,77.289,77.3088,7.8118,56.249,1.0,30.0,455.56
+index_order,heuristic,77.054,77.029,7.8477,56.014,1.0,30.0,455.04
+easy_first,heuristic,74.8113,74.7968,8.0842,53.7713,1.0,30.0,471.44

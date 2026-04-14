@@ -1,16 +1,9 @@
 # ABLATION 5-B: Action granularity — 60-second time unit
 # Baseline comparison: action_10s / default(30s) / action_60s
 #
-# What changes: exam.action_time_unit_sec = 60
-#   → Each solve_more step spends 60 seconds (vs 30s default).
-#   → Coarser control: the agent must commit larger time blocks per step.
-#   → Episode length in steps shrinks ~2× vs default (fewer decisions).
-#   → Credit assignment is easier; exploration is cheaper.
-# Trade-off: the agent cannot fine-tune time allocation at the margin.
-#
-# Expected: shorter episodes speed up training convergence, but the ceiling
-# score is lower than 30s because the agent over-invests on easy problems
-# that saturate before 60s and under-invests on hard ones that need < 60s.
+# What changes: exam.action_time_unit_sec = 60 only.
+# All other environment, reward, and training settings are kept aligned with
+# configs/default.yaml so this remains a clean action-granularity ablation.
 
 experiment:
   name: "ablation_action_60s"
@@ -24,10 +17,10 @@ exam:
   allow_agent_selected_start_problem: false
   reveal_difficulty: false
   difficulty_time_priors_sec:
-    하: 60
-    중하: 120
-    중: 180
-    상: 360
+    하: 30
+    중하: 60
+    중: 90
+    상: 300
     최상: 600
   first_pass:
     enabled: true
@@ -40,7 +33,7 @@ exam:
     enabled: true
     objective_conf_threshold: 0.95
     subjective_conf_threshold: 0.95
-    streak_threshold: 10         # ½ to match 30s streak_threshold=20
+    streak_threshold: 20
 
 dynamics:
   anchor_source: "correct_rate"
@@ -86,12 +79,10 @@ reward:
 training:
   algorithm: "ppo"
   device: "cpu"
-  total_steps: 500000
+  total_steps: 1000000
   eval_episodes: 100
-  progress_log_freq: 50000
-  checkpoint_freq: 50000
-  score_log_freq: 50000
-  score_log_eval_episodes: 10
+  progress_log_freq: 10000
+  checkpoint_freq: 10000
   strategy_constraint:
     name: null
 
@@ -108,19 +99,19 @@ ppo:
   clip_range: 0.2
   ent_coef: 0.02
   vf_coef: 0.5
-  n_steps: 2048                 # smaller rollout buffer ok for shorter episodes
-  batch_size: 64
+  n_steps: 4096
+  batch_size: 128
   n_epochs: 10
   net_arch: [256, 256]
 
 dqn:
   learning_rate: 1.0e-4
   gamma: 0.99
-  buffer_size: 50000
-  learning_starts: 5000
-  batch_size: 64
+  buffer_size: 100000
+  learning_starts: 10000
+  batch_size: 128
   train_freq: 4
-  target_update_interval: 500
+  target_update_interval: 1000
   exploration_initial_eps: 1.0
   exploration_final_eps: 0.05
   exploration_fraction: 0.2

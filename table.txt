@@ -1,0 +1,161 @@
+================================================================================
+ KSAT Exam Strategy RL — 실험 결과 기록표
+ Config: configs/default.yaml  |  Episodes: 100  |  Realized rollouts: 100
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [0] 베이스라인 비교  (default config)
+ 실행: python analysis/run_comparison.py --config configs/default.yaml --runs-dir runs/ --episodes 100
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Policy                     Type        Exp.Score    Real.Score   Real.Std   Reward    Coverage    Solved   Steps
+-------------------------  ----------  ----------  -----------  ---------  ---------  ---------  -------  -------
+random                     heuristic     84.375       84.478      6.300     63.335      1.000     29.45   313.34
+equal_time                 heuristic     80.549       80.660      7.217     59.509      1.000     30.00   404.00
+index_order                heuristic     76.851       76.931      7.814     55.811      1.000     30.00   458.32
+easy_first                 heuristic     74.661       74.734      8.022     53.621      1.000     30.00   474.24
+high_score_first           heuristic     78.254       78.337      7.611     57.214      1.000     30.00   448.00
+score_time_ratio           heuristic     77.178       77.279      7.761     56.138      1.000     30.00   458.08
+marginal_gain_greedy       heuristic     89.932       89.980      5.526     68.892      1.000     30.00   289.93
+PPO                        rl               -            -           -          -          -         -        -
+DQN                        rl               -            -           -          -          -         -        -
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [1] ABLATION A — 확률 모델 (Probability Model)
+ 비교: default vs prob_no_ambiguity vs prob_no_subjective_floor vs prob_anchor_difficulty
+ Phase A 실행: python main.py --mode heuristic --config configs/ablation/<config>.yaml
+ Phase B 실행: python main.py --mode train    --config configs/ablation/<config>.yaml
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config                          Policy                 Exp.Score   Real.Score   Real.Std    Coverage    Solved
+------------------------------  ---------------------  ----------  -----------  ---------  ---------  -------
+default                         marginal_gain_greedy        -            -           -          -         -
+default                         PPO                         -            -           -          -         -
+prob_no_ambiguity               marginal_gain_greedy        -            -           -          -         -
+prob_no_ambiguity               PPO                         -            -           -          -         -
+prob_no_subjective_floor        marginal_gain_greedy        -            -           -          -         -
+prob_no_subjective_floor        PPO                         -            -           -          -         -
+prob_anchor_difficulty          marginal_gain_greedy        -            -           -          -         -
+prob_anchor_difficulty          PPO                         -            -           -          -         -
+
+ 해석 포인트:
+  - ambiguity_weight=0 → 주관식 불확실성 제거 시 점수 변화
+  - subjective_floor=0 → 낮은 확신 문제에 더 냉정한 평가 시 효과
+  - anchor=difficulty  → correct_rate 대신 난이도 기반 앵커의 영향
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [2] ABLATION B — 보상 구조 (Reward Shaping)
+ 비교: reward_pure (제어군) vs reward_shaping
+ Phase A 실행: python main.py --mode heuristic --config configs/ablation/<config>.yaml
+ Phase B 실행: python main.py --mode train    --config configs/ablation/<config>.yaml
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config                          Policy                 Exp.Score   Real.Score   Real.Std    Coverage    Solved
+------------------------------  ---------------------  ----------  -----------  ---------  ---------  -------
+reward_pure                     marginal_gain_greedy        -            -           -          -         -
+reward_pure                     PPO                         -            -           -          -         -
+reward_shaping                  marginal_gain_greedy        -            -           -          -         -
+reward_shaping                  PPO                         -            -           -          -         -
+
+ 해석 포인트:
+  - reward_pure: 보상 = 기대점수 증분만 (shaping 없음) → RL의 순수 학습력 측정
+  - reward_shaping: switch penalty + coverage bonus + saturation/streak/terminal 활성화
+  - shaping이 RL에는 도움이 되지만 휴리스틱에는 무관 (휴리스틱은 보상 함수와 무관)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [3] ABLATION C — 전환 비용 (Switch Cost)
+ 비교: 0s / 5s / 10s(default) / 20s
+ Phase A 실행: python main.py --mode heuristic --config configs/ablation/<config>.yaml
+ Phase B 실행: python main.py --mode train    --config configs/ablation/<config>.yaml
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config                          Policy                 Exp.Score   Real.Score   Real.Std    Coverage    Solved
+------------------------------  ---------------------  ----------  -----------  ---------  ---------  -------
+switch_cost_0s                  marginal_gain_greedy        -            -           -          -         -
+switch_cost_0s                  PPO                         -            -           -          -         -
+switch_cost_5s                  marginal_gain_greedy        -            -           -          -         -
+switch_cost_5s                  PPO                         -            -           -          -         -
+default (10s)                   marginal_gain_greedy        -            -           -          -         -
+default (10s)                   PPO                         -            -           -          -         -
+switch_cost_20s                 marginal_gain_greedy        -            -           -          -         -
+switch_cost_20s                 PPO                         -            -           -          -         -
+
+ 해석 포인트:
+  - 전환 비용 ↑ → coverage ↓, 각 문제 투자 시간 ↑ → 집중형 전략
+  - 전환 비용 = 0 → 잦은 switching이 최적인지 확인
+  - RL이 switch cost에 적응하는 속도 vs 휴리스틱(수동 조정 없음)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [4] ABLATION D — 학생 분포 (Student Distribution)
+ 비교: student_fixed_mid vs student_mixed
+ Phase A 실행: python main.py --mode heuristic --config configs/ablation/<config>.yaml
+ Phase B 실행: python main.py --mode train    --config configs/ablation/<config>.yaml
+ 평가 시 각 레벨별 breakdown:
+   python analysis/run_comparison.py --config configs/ablation/<config>.yaml --student-level low
+   python analysis/run_comparison.py --config configs/ablation/<config>.yaml --student-level mid
+   python analysis/run_comparison.py --config configs/ablation/<config>.yaml --student-level high
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config                  Level    Policy                 Exp.Score   Real.Score   Real.Std    Coverage    Solved
+----------------------  -------  ---------------------  ----------  -----------  ---------  ---------  -------
+student_fixed_mid       mid      marginal_gain_greedy        -            -           -          -         -
+student_fixed_mid       mid      PPO                         -            -           -          -         -
+student_mixed           low      marginal_gain_greedy        -            -           -          -         -
+student_mixed           low      PPO                         -            -           -          -         -
+student_mixed           mid      marginal_gain_greedy        -            -           -          -         -
+student_mixed           mid      PPO                         -            -           -          -         -
+student_mixed           high     marginal_gain_greedy        -            -           -          -         -
+student_mixed           high     PPO                         -            -           -          -         -
+
+ 해석 포인트:
+  - fixed_mid PPO vs mixed PPO @ mid level: 특화 학습 vs 범용 학습 성능 차이
+  - mixed PPO @ low/high: 범용 정책의 하위/상위 학생 일반화 능력
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ [5] ABLATION E — 행동 단위 (Action Granularity)
+ 비교: 10s / 30s(default) / 60s
+ Phase A 실행: python main.py --mode heuristic --config configs/ablation/<config>.yaml
+ Phase B 실행: python main.py --mode train    --config configs/ablation/<config>.yaml
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config                          Policy                 Exp.Score   Real.Score   Real.Std    Coverage    Steps
+------------------------------  ---------------------  ----------  -----------  ---------  ---------  -------
+action_10s                      marginal_gain_greedy        -            -           -          -         -
+action_10s                      PPO                         -            -           -          -         -
+default (30s)                   marginal_gain_greedy        -            -           -          -         -
+default (30s)                   PPO                         -            -           -          -         -
+action_60s                      marginal_gain_greedy        -            -           -          -         -
+action_60s                      PPO                         -            -           -          -         -
+
+ 해석 포인트:
+  - 10s: 에피소드 길이 ~3× → 학습 난이도 증가, 세밀한 시간 배분 가능
+  - 60s: 에피소드 길이 ~½ × → 빠른 수렴, 하지만 포화 전 이탈/과투자 위험
+  - Steps 열: 행동 단위별 에피소드당 스텝 수 비교
+
+
+================================================================================
+ 멀티시드 결과 (통계 신뢰도)
+ 실행: python agents/train_rl.py --config configs/default.yaml --seeds 42,123,2024
+================================================================================
+
+Policy / Config              Seeds           Mean Score (mean±std)   Real.Score (mean±std)
+---------------------------  --------------  ----------------------  ----------------------
+PPO  default                 42, 123, 2024        -  ± -                  -  ± -
+DQN  default                 42, 123, 2024        -  ± -                  -  ± -
+
+
+================================================================================
+ 메모 / 특이사항
+================================================================================
+
+ 날짜:
+ 실행 환경 (CPU/GPU, Python 버전 등):
+ 특이사항:
+
+
+================================================================================

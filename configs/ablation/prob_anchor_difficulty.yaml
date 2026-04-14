@@ -1,5 +1,5 @@
 # ABLATION 1-C: Probability model — anchor source = difficulty (correct_rate OFF)
-# Baseline comparison: prob_anchor_difficulty vs default (anchor_source: "correct_rate")
+# Baseline comparison: prob_anchor_difficulty vs action_60s baseline (anchor_source: "correct_rate")
 #
 # What changes: dynamics.anchor_source = "difficulty"
 #   → Uses problem.difficulty field directly as the hardness anchor instead of
@@ -7,7 +7,8 @@
 #     by item authors; correct_rate comes from real student response data.
 #   → This tests whether data-driven correct_rate gives better calibration
 #     than the author-assigned difficulty label.
-# What stays the same: all other dynamics params, reward, env settings.
+# What stays the same: the selected 60-second baseline environment, reward, and
+# all remaining dynamics parameters.
 #
 # Expected result: the difficulty field and correct_rate are highly correlated
 # in this dataset, so the gap may be small. A larger gap would suggest the
@@ -19,7 +20,7 @@ experiment:
 
 exam:
   total_time_sec: 6000
-  action_time_unit_sec: 30
+  action_time_unit_sec: 60
   switch_time_sec: 10
   randomize_start_problem: true
   allow_agent_selected_start_problem: false

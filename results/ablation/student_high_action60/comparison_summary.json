@@ -1,0 +1,79 @@
+[
+  {
+    "policy": "marginal_gain_greedy",
+    "type": "heuristic",
+    "mean_expected_score": 94.619,
+    "mean_realized_score": 94.6,
+    "mean_realized_score_std": 4.1958,
+    "mean_reward": 73.579,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 189.5167
+  },
+  {
+    "policy": "random",
+    "type": "heuristic",
+    "mean_expected_score": 92.4503,
+    "mean_realized_score": 92.4193,
+    "mean_realized_score_std": 4.7793,
+    "mean_reward": 71.4103,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 29.8,
+    "mean_steps": 212.6333
+  },
+  {
+    "policy": "equal_time",
+    "type": "heuristic",
+    "mean_expected_score": 91.0947,
+    "mean_realized_score": 91.0277,
+    "mean_realized_score_std": 5.2487,
+    "mean_reward": 70.0547,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 301.1667
+  },
+  {
+    "policy": "high_score_first",
+    "type": "heuristic",
+    "mean_expected_score": 89.1402,
+    "mean_realized_score": 89.1295,
+    "mean_realized_score_std": 5.7449,
+    "mean_reward": 68.1002,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 366.4167
+  },
+  {
+    "policy": "index_order",
+    "type": "heuristic",
+    "mean_expected_score": 88.884,
+    "mean_realized_score": 88.8527,
+    "mean_realized_score_std": 5.8644,
+    "mean_reward": 67.844,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 371.6667
+  },
+  {
+    "policy": "score_time_ratio",
+    "type": "heuristic",
+    "mean_expected_score": 88.451,
+    "mean_realized_score": 88.4222,
+    "mean_realized_score_std": 5.9343,
+    "mean_reward": 67.411,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 381.6667
+  },
+  {
+    "policy": "easy_first",
+    "type": "heuristic",
+    "mean_expected_score": 86.9262,
+    "mean_realized_score": 86.929,
+    "mean_realized_score_std": 6.311,
+    "mean_reward": 65.8862,
+    "mean_coverage_fraction": 1.0,
+    "mean_solved_count": 30.0,
+    "mean_steps": 402.3333
+  }
+]
