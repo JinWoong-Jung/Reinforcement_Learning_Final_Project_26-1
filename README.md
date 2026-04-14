@@ -10,7 +10,11 @@
 
 ## 설치
 
+### `conda` 환경 사용
+
 ```bash
+conda create -n rlproject python=3.11 -y
+conda activate rlproject
 pip install -r requirements.txt
 ```
 
