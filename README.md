@@ -29,74 +29,57 @@ analysis/         # 평가, 비교표 생성
 tests/            # 엣지케이스 테스트
 ```
 
-## 빠른 시작
+## Phase A Ablations
 
-### 휴리스틱 베이스라인 평가
+### 1. Switch Cost
 
-```bash
-python main.py --mode heuristic
-python main.py --mode heuristic --config configs/default.yaml --episodes 200
-```
-
-### RL 학습
+문제 사이를 이동할 때 드는 시간 비용 `switch_time_sec`를 바꿔, 전환 비용이 전략 성능에 어떤 영향을 주는지 본다.
 
 ```bash
-# 단일 시드
-python main.py --mode train --config configs/default.yaml
-
-# 멀티 시드 (통계적 신뢰도)
-python agents/train_rl.py --config configs/default.yaml --seeds 42,123,2024
+for cost in 0 5 10 20; do
+  cfg="configs/phaseA/group1_switch_cost/switch_cost_${cost}s.yaml"
+  python analysis/run_comparison.py \
+    --config $cfg \
+    --student-level mid \
+    --episodes 50 \
+    --realized-rollouts 100 \
+    --output results/phaseA/group1_switch_cost/switch_cost_${cost}s/
+done
 ```
 
-### RL 평가
+결과: `switch_cost`가 커질수록 `marginal_gain_greedy`와 `random`의 격차가 커졌고, `10초`가 가장 균형적인 기본값으로 확인되었다.
+
+### 2. Action Granularity
+
+한 번의 `solve_more` 행동이 몇 초를 의미하는지 바꿔, 시간 제어 단위의 적절한 크기를 비교한다.
 
 ```bash
-python main.py --mode eval --model-path runs/ppo_final.zip --algorithm ppo
+for unit in 10 30 60; do
+  cfg="configs/phaseA/group2_action_granularity/action_${unit}s.yaml"
+  python analysis/run_comparison.py \
+    --config $cfg \
+    --student-level mid \
+    --episodes 50 \
+    --realized-rollouts 100 \
+    --output results/phaseA/group2_action_granularity/action_${unit}s/
+done
 ```
 
-### 비교표 생성 (휴리스틱 + RL 전체)
+결과: `10초` 단위의 미세 제어는 성능 이득이 거의 없었고, `60초`가 가장 높은 점수와 가장 적은 step 수를 보여 기본 시간 단위로 채택되었다.
+
+### 3. Student Skill
+
+학생 능력 수준을 `low / mid / high`로 고정해, 능력대에 따라 어떤 전략 차이가 나타나는지 본다.
 
 ```bash
-python analysis/run_comparison.py --config configs/default.yaml --runs-dir runs/
+for level in low mid high; do
+  cfg="configs/phaseA/group3_student_skill/student_${level}.yaml"
+  python analysis/run_comparison.py \
+    --config $cfg \
+    --episodes 60 \
+    --realized-rollouts 100 \
+    --output results/phaseA/group3_student_skill/student_${level}/
+done
 ```
 
-## Ablation 실험
-
-`configs/phaseA/` 아래에 Phase A ablation config가 그룹별 폴더로 정리되어 있다.
-`group1_switch_cost/`, `group2_action_granularity/`, `group3_student_skill/`
-Phase B RL 관련 config는 `configs/phaseB/` 아래에 정리되어 있다.
-
-| 축 | 파일 |
-|---|---|
-| 보상 구조 | `reward_pure.yaml`, `reward_shaping.yaml` |
-| 전환 비용 | `switch_cost_0s.yaml`, `switch_cost_5s.yaml`, `switch_cost_10s.yaml`, `switch_cost_20s.yaml` |
-| 학생 능력 | `student_low.yaml`, `student_mid.yaml`, `student_high.yaml` |
-| 행동 단위 | `action_10s.yaml`, `action_30s.yaml`, `action_60s.yaml` |
-
-**Phase A — 휴리스틱으로 먼저 확인:**
-```bash
-python main.py --mode heuristic --config configs/phaseA/group1_switch_cost/switch_cost_0s.yaml
-```
-
-**Phase B — RL 학습 후 비교:**
-```bash
-python main.py --mode train --config configs/phaseB/reward/reward_shaping.yaml
-python analysis/run_comparison.py --config configs/phaseB/reward/reward_shaping.yaml --runs-dir runs/
-```
-
-## 테스트
-
-```bash
-python -m pytest tests/ -v
-```
-
-## 설정 파일 주요 항목
-
-`configs/default.yaml` 에서 조정 가능한 핵심 파라미터:
-
-- `exam.total_time_sec`: 총 시험 시간
-- `exam.action_time_unit_sec`: solve_more 1회당 소비 시간
-- `exam.switch_time_sec`: 문제 전환 비용
-- `dynamics.anchor_source`: 신뢰도 앵커 (`correct_rate` / `difficulty`)
-- `training.algorithm`: `ppo` 또는 `dqn`
-- `training.total_steps`: 학습 스텝 수
+결과: 학생 능력이 높을수록 절대 점수는 상승했지만, `marginal_gain_greedy`의 상대적 이득은 `low`에서 가장 크게 나타났다. 따라서 이후 RL은 범용 정책보다 능력대별 맞춤 정책 추천 방향으로 진행한다.
