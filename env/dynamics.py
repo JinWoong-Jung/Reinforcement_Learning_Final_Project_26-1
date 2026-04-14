@@ -165,6 +165,30 @@ def confidence_curve(
     return _clamp(p)
 
 
+def confidence_static_params(
+    problem: Problem,
+    student: StudentProfile,
+    dynamics_cfg: dict | None = None,
+) -> tuple[float, float, float, float]:
+    """Return time-independent parameters for fast marginal-gain computation.
+
+    Returns:
+        (floor, static_logit, alpha, tau)
+
+        static_logit = theta - beta*diff_anchor - gamma*ambiguity
+
+    The full confidence at time t is:
+        p = floor + (1-floor) * sigmoid(static_logit + alpha * log(1 + t/tau))
+
+    Cache this per-problem per-episode (never changes within an episode).
+    """
+    floor, theta, beta, gamma, alpha, tau = confidence_params(problem, student, dynamics_cfg)
+    diff_anchor = _difficulty_anchor(problem, dynamics_cfg)
+    ambiguity = choice_entropy(problem)
+    static_logit = theta - beta * diff_anchor - gamma * ambiguity
+    return float(floor), float(static_logit), float(alpha), float(tau)
+
+
 def expected_total_score(state: ExamState, problems: list[Problem]) -> float:
     return float(
         sum(float(problem.score) * progress.effective_confidence(problem) for problem, progress in zip(problems, state.progress))

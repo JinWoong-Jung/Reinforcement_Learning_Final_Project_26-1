@@ -4,11 +4,16 @@ import argparse
 import copy
 import json
 import os
+import sys
 from datetime import datetime
 from typing import Any
 
 import numpy as np
 import yaml
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from env.exam_env import ExamStrategyEnv
 from env.state import solved_criteria_from_config
@@ -27,7 +32,7 @@ try:
     from stable_baselines3 import DQN, PPO
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
     from stable_baselines3.common.callbacks import CheckpointCallback
-    from stable_baselines3.common.vec_env import DummyVecEnv
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 except ImportError:  # pragma: no cover
     PPO = None
     DQN = None
@@ -35,6 +40,7 @@ except ImportError:  # pragma: no cover
     CallbackList = None
     CheckpointCallback = None
     DummyVecEnv = None
+    VecNormalize = None
 
 try:
     import torch
@@ -285,6 +291,7 @@ class ScoreLogCallback(BaseCallback if BaseCallback is not None else object):
         n_eval_episodes: int = 5,
         algorithm: str = "ppo",
         seed: int = 0,
+        shared_status: dict[str, Any] | None = None,
     ) -> None:
         if BaseCallback is not None:
             super().__init__()
@@ -295,17 +302,21 @@ class ScoreLogCallback(BaseCallback if BaseCallback is not None else object):
         self.algorithm = algorithm
         self.seed = seed
         self._last_eval_step = 0
+        self.shared_status = shared_status if shared_status is not None else {}
 
     def _on_step(self) -> bool:
         if self.num_timesteps - self._last_eval_step < self.eval_freq:
             return True
         self._last_eval_step = self.num_timesteps
+        # Pass the live VecNormalize env if available so obs is normalized consistently.
+        live_vec_norm = self.model.env if (VecNormalize is not None and isinstance(self.model.env, VecNormalize)) else None
         metrics = evaluate_trained_model(
             model=self.model,
             config=self.config,
             n_episodes=self.n_eval_episodes,
             algorithm=self.algorithm,
             seed=self.seed,
+            vec_normalize=live_vec_norm,
         )
         entry = {
             "timestep": self.num_timesteps,
@@ -315,11 +326,19 @@ class ScoreLogCallback(BaseCallback if BaseCallback is not None else object):
         }
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+        self.shared_status["latest_mean_score"] = float(metrics["mean_score"])
+        self.shared_status["latest_mean_reward"] = float(metrics["mean_reward"])
+        self.shared_status["latest_eval_timestep"] = int(self.num_timesteps)
         return True
 
 
 class ProgressPrinterCallback(BaseCallback if BaseCallback is not None else object):
-    def __init__(self, total_timesteps: int, print_freq: int) -> None:
+    def __init__(
+        self,
+        total_timesteps: int,
+        print_freq: int,
+        shared_status: dict[str, Any] | None = None,
+    ) -> None:
         if BaseCallback is not None:
             super().__init__()
         self.total_timesteps = max(int(total_timesteps), 1)
@@ -327,6 +346,7 @@ class ProgressPrinterCallback(BaseCallback if BaseCallback is not None else obje
         self._last_print = 0
         self._pbar = None
         self._last_pbar_step = 0
+        self.shared_status = shared_status if shared_status is not None else {}
 
     def _on_training_start(self) -> None:
         if tqdm is not None:
@@ -346,10 +366,18 @@ class ProgressPrinterCallback(BaseCallback if BaseCallback is not None else obje
             if delta > 0:
                 self._pbar.update(delta)
                 self._last_pbar_step = self.num_timesteps
+            if "latest_mean_score" in self.shared_status:
+                postfix = {"score": f"{self.shared_status['latest_mean_score']:.3f}"}
+                if "latest_mean_reward" in self.shared_status:
+                    postfix["reward"] = f"{self.shared_status['latest_mean_reward']:.3f}"
+                self._pbar.set_postfix(postfix, refresh=False)
         if self.num_timesteps - self._last_print >= self.print_freq or self.num_timesteps >= self.total_timesteps:
             progress = min(100.0, 100.0 * self.num_timesteps / self.total_timesteps)
             if self._pbar is None:
-                print(f"[train] {self.num_timesteps}/{self.total_timesteps} steps ({progress:.1f}%)")
+                extra = ""
+                if "latest_mean_score" in self.shared_status:
+                    extra = f" score={self.shared_status['latest_mean_score']:.3f}"
+                print(f"[train] {self.num_timesteps}/{self.total_timesteps} steps ({progress:.1f}%){extra}")
             self._last_print = self.num_timesteps
         return True
 
@@ -364,13 +392,18 @@ def _build_callbacks(
     total_steps = int(train_cfg.get("total_steps", 500000))
     checkpoint_freq = int(train_cfg.get("checkpoint_freq", max(1000, total_steps // 10)))
     progress_log_freq = int(train_cfg.get("progress_log_freq", max(1000, total_steps // 20)))
+    shared_status: dict[str, Any] = {}
 
     checkpoint = CheckpointCallback(
         save_freq=checkpoint_freq,
         save_path=paths["model"],
         name_prefix=str(train_cfg.get("checkpoint_prefix", "ckpt")),
     )
-    progress = ProgressPrinterCallback(total_timesteps=total_steps, print_freq=progress_log_freq)
+    progress = ProgressPrinterCallback(
+        total_timesteps=total_steps,
+        print_freq=progress_log_freq,
+        shared_status=shared_status,
+    )
     callbacks: list = [checkpoint, progress]
 
     score_log_freq = int(train_cfg.get("score_log_freq", 0))
@@ -385,6 +418,7 @@ def _build_callbacks(
                 n_eval_episodes=n_score_eval,
                 algorithm=algorithm,
                 seed=base_seed,
+                shared_status=shared_status,
             )
         )
 
@@ -397,6 +431,8 @@ def evaluate_trained_model(
     n_episodes: int = 30,
     algorithm: str = "ppo",
     seed: int = 42,
+    vec_norm_path: str | None = None,
+    vec_normalize=None,
 ) -> dict[str, float]:
     is_dqn = algorithm.lower() == "dqn"
     solved_criteria = solved_criteria_from_config(config)
@@ -412,15 +448,32 @@ def evaluate_trained_model(
         "steps": [],
     }
 
+    # Determine obs normalizer: live VecNormalize object takes priority over saved file.
+    obs_normalizer = None
+    if vec_normalize is not None and VecNormalize is not None and isinstance(vec_normalize, VecNormalize):
+        obs_normalizer = vec_normalize
+    elif vec_norm_path is not None and VecNormalize is not None and os.path.exists(vec_norm_path):
+        _dummy = DummyVecEnv([lambda: _build_env(config=config, for_dqn=is_dqn, seed=seed)])
+        obs_normalizer = VecNormalize.load(vec_norm_path, _dummy)
+        obs_normalizer.training = False
+        obs_normalizer.norm_reward = False
+
+    def _norm_obs(o):
+        if obs_normalizer is None:
+            return o
+        return obs_normalizer.normalize_obs(np.asarray(o, dtype=np.float32).reshape(1, -1))[0]
+
     for ep in range(n_episodes):
         env = _build_env(config=config, for_dqn=is_dqn, seed=seed + ep)
         obs, _ = env.reset(seed=seed + ep)
+        obs = _norm_obs(obs)
         done = False
         truncated = False
         ep_reward = 0.0
         while not (done or truncated):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, truncated, _ = env.step(action)
+            obs = _norm_obs(obs)
             ep_reward += float(reward)
 
         state = env.state if hasattr(env, "state") else env.unwrapped.state
@@ -468,12 +521,17 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
     paths = _ensure_dirs(os.path.join(output_root, run_name))
 
     base_seed = int(config.get("experiment", {}).get("seed", 42))
-    vec_env = DummyVecEnv([lambda: _build_env(config=config, for_dqn=False, seed=base_seed)])
     ppo_cfg = config.get("ppo", {})
     train_cfg = config.get("training", {})
+    n_envs = int(train_cfg.get("n_envs", 4))
+    vec_env = DummyVecEnv([
+        (lambda s: lambda: _build_env(config=config, for_dqn=False, seed=s))(base_seed + i)
+        for i in range(n_envs)
+    ])
+    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
     device = _select_torch_device_from_value(str(train_cfg.get("device", "auto")))
     total_steps = int(train_cfg.get("total_steps", 500000))
-    print(f"[train_ppo] device={device} total_steps={total_steps} eval_episodes={int(train_cfg.get('eval_episodes', 100))}")
+    print(f"[train_ppo] device={device} total_steps={total_steps} eval_episodes={int(train_cfg.get('eval_episodes', 100))} n_envs={n_envs}")
     print(f"[train_ppo] output_dir={paths['base']}")
 
     net_arch = ppo_cfg.get("net_arch", [64, 64])
@@ -507,7 +565,9 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
 
     final_model_path = os.path.join(paths["model"], "ppo_final")
     model.save(final_model_path)
-    print(f"[train_ppo] final_model={final_model_path}.zip")
+    vec_norm_path = os.path.join(paths["model"], "vec_normalize.pkl")
+    vec_env.save(vec_norm_path)
+    print(f"[train_ppo] final_model={final_model_path}.zip  vec_normalize={vec_norm_path}")
 
     metrics = evaluate_trained_model(
         model=model,
@@ -515,6 +575,7 @@ def train_ppo(config: dict[str, Any], output_root: str = "runs", run_name: str |
         n_episodes=int(train_cfg.get("eval_episodes", 100)),
         algorithm="ppo",
         seed=base_seed,
+        vec_norm_path=vec_norm_path,
     )
 
     with open(os.path.join(paths["base"], "config_snapshot.yaml"), "w", encoding="utf-8") as f:

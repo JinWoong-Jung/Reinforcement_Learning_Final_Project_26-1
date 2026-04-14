@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 from typing import Any
 
@@ -42,7 +43,7 @@ except ImportError:  # pragma: no cover
     gym = _FallbackGym()
     spaces = _FallbackSpaces()
 
-from .dynamics import apply_time_cost, expected_total_score, move_next, solve_more
+from .dynamics import apply_time_cost, confidence_curve, confidence_static_params, expected_total_score, move_next, solve_more
 from .problem import Problem, load_exam_json
 from .reward import compute_step_reward, compute_terminal_reward
 from .state import ExamState, ProblemProgress, ProblemStatus, solved_criteria_from_config
@@ -155,6 +156,7 @@ class ExamStrategyEnv(gym.Env):
         self.rng = np.random.default_rng(random_seed)
         self.student_profiles = load_student_profiles(self.student_data_path)
         self.current_student: StudentProfile | None = None
+        self._mg_params_cache: list[tuple[float, float, float, float, float]] | None = None  # (floor, static_logit, alpha, tau, score_norm) per problem
         self.state: ExamState | None = None
         self._recent_problem_entries: list[int] = []
         self._current_session_had_work = False
@@ -166,13 +168,13 @@ class ExamStrategyEnv(gym.Env):
         # If action_type==1 and target_problem_idx==current, redirects to (current+1)%N.
         self.action_space = spaces.MultiDiscrete([2, self.num_problems])
 
-        # Per-problem features (11): status, time_spent, difficulty_level, score,
-        # problem_type, error_rate, and five confidence slots.
+        # Per-problem features (12): status, time_spent, difficulty_level, score,
+        # problem_type, error_rate, five confidence slots, marginal_gain.
         # Confidence slots are type-aware but fixed-length:
         # - subjective: [answer_confidence, 0, 0, 0, 0]
         # - objective: [c1, c2, c3, c4, c5]
         # NOTE: pid and true difficulty remain hidden from the agent.
-        obs_dim = 2 + (self.num_problems * 11)
+        obs_dim = 2 + (self.num_problems * 12)
         self.observation_space = spaces.Box(
             low=np.zeros(obs_dim, dtype=np.float32),
             high=np.ones(obs_dim, dtype=np.float32),
@@ -216,6 +218,15 @@ class ExamStrategyEnv(gym.Env):
             self.current_student = sample_student_profile(self.student_profiles, self.rng)
         else:
             self.current_student = create_level_profile("mid", self.rng, preset_path=self.student_preset_path)
+
+        # Cache time-independent marginal-gain params (floor, static_logit, alpha, tau, score_norm).
+        # These never change within an episode, so computing them once here avoids 30× repeated work per step.
+        _max_score = max((p.score for p in self.problems), default=1.0)
+        self._mg_params_cache = [
+            (*confidence_static_params(prob, self.current_student, self.dynamics_cfg),
+             float(prob.score) / max(_max_score, 1.0))
+            for prob in self.problems
+        ]
 
         progress = [ProblemProgress() for _ in range(self.num_problems)]
         for p, problem in zip(progress, self.problems):
@@ -571,6 +582,21 @@ class ExamStrategyEnv(gym.Env):
             features.append(float(self.PROBLEM_TYPE_MAP.get(problem.problem_type, 0.5)))
             features.append(float(np.clip(problem.error_rate, 0.0, 1.0)))
             features.extend(confidence_slots)
+
+            # Marginal gain: expected score increase from one solve_more unit on this problem.
+            # = score * max(0, conf_curve(t + Δt) - conf_now), normalised by max_score.
+            # Uses cached time-independent params to avoid recomputing constant parts every step.
+            if self._mg_params_cache is not None:
+                mg_floor, mg_static_logit, mg_alpha, mg_tau, mg_score_norm = self._mg_params_cache[i]
+                t_future = float(progress.time_spent_sec) + self.action_time_unit_sec
+                logit_f = mg_static_logit + mg_alpha * math.log(1.0 + t_future / mg_tau)
+                sig_f = 1.0 / (1.0 + math.exp(-logit_f)) if logit_f >= 0 else math.exp(logit_f) / (1.0 + math.exp(logit_f))
+                p_future = max(mg_floor, min(1.0, mg_floor + (1.0 - mg_floor) * sig_f))
+                conf_now = float(progress.effective_confidence(problem))
+                mg = min(max(mg_score_norm * (p_future - conf_now), 0.0), 1.0)
+            else:
+                mg = 0.0
+            features.append(mg)
 
         return np.asarray(features, dtype=np.float32)
 
