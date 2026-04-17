@@ -1,6 +1,15 @@
+# Python caches
 __pycache__/
+*.pyc
+
+# macOS / editor noise
+.DS_Store
+
+# Generated runs and caches
 runs/
 .pytest_cache/
+
+# Local-only docs / agent metadata
 PhaseA.md
 PhaseB.md
 .agents/
