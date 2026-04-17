@@ -79,12 +79,13 @@ reward:
 training:
   algorithm: "ppo"
   device: "cpu"
-  total_steps: 1000000
+  total_steps: 10000000
   eval_episodes: 100
   progress_log_freq: 50000
-  checkpoint_freq: 10000
-  score_log_freq: 50000
+  checkpoint_freq: 500000
+  score_log_freq: 500000
   score_log_eval_episodes: 5
+  n_envs: 8
   strategy_constraint:
     name: null
 
@@ -99,7 +100,7 @@ ppo:
   gamma: 0.995
   gae_lambda: 0.95
   clip_range: 0.2
-  ent_coef: 0.02
+  ent_coef: 0.01
   vf_coef: 0.5
   n_steps: 8192
   batch_size: 256
@@ -117,6 +118,15 @@ dqn:
   exploration_initial_eps: 1.0
   exploration_final_eps: 0.05
   exploration_fraction: 0.2
+
+dpo:
+  teacher_policy: "marginal_gain_greedy"
+  dataset_episodes: 200
+  epochs: 10
+  batch_size: 256
+  learning_rate: 1.0e-4
+  beta: 0.1
+  net_arch: [256, 256]
 
 data:
   exam_paths:

@@ -12,10 +12,12 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from agents.dpo_model import DPOPolicyModel
 from agents.heuristic_agents import heuristic_action
 from agents.train_rl import _build_env
 from env.exam_env import ExamStrategyEnv
 from env.state import solved_criteria_from_config
+from utils.model_compat import build_sb3_custom_objects, install_numpy_pickle_compat
 from utils.io import load_config, save_json
 
 try:
@@ -25,17 +27,22 @@ except ImportError:  # pragma: no cover
     PPO = None
 
 
-def _load_model(model_path: str, algorithm: str):
+def _load_model(model_path: str, algorithm: str, config: dict[str, Any]):
     algo = algorithm.lower()
+    if algo == "dpo":
+        return DPOPolicyModel.load(model_path)
+    install_numpy_pickle_compat()
+    env = _build_env(config=config, for_dqn=algo == "dqn", seed=int(config.get("experiment", {}).get("seed", 42)))
+    custom_objects = build_sb3_custom_objects(config, algo, env)
     if algo == "ppo":
         if PPO is None:
             raise ImportError("stable-baselines3 is required to load PPO models.")
-        return PPO.load(model_path)
+        return PPO.load(model_path, env=env, custom_objects=custom_objects)
     if algo == "dqn":
         if DQN is None:
             raise ImportError("stable-baselines3 is required to load DQN models.")
-        return DQN.load(model_path)
-    raise ValueError("algorithm must be 'ppo' or 'dqn'")
+        return DQN.load(model_path, env=env, custom_objects=custom_objects)
+    raise ValueError("algorithm must be 'ppo', 'dqn', or 'dpo'")
 
 
 def _resolve_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -307,7 +314,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=str, default=None, help="Run directory containing config_snapshot.yaml")
     parser.add_argument("--config", type=str, default=None, help="Config path if no run dir is provided")
     parser.add_argument("--model-path", type=str, default=None, help="Path to PPO/DQN model zip")
-    parser.add_argument("--algorithm", type=str, choices=["ppo", "dqn"], default="ppo")
+    parser.add_argument("--algorithm", type=str, choices=["ppo", "dqn", "dpo"], default="ppo")
     parser.add_argument("--policy-name", type=str, default=None, help="Heuristic policy name")
     parser.add_argument("--exam-data", type=str, default=None)
     parser.add_argument("--student-data", type=str, default=None)
@@ -327,7 +334,7 @@ def main() -> None:
     if bool(args.model_path) == bool(args.policy_name):
         raise ValueError("Provide exactly one of --model-path or --policy-name")
 
-    rl_model = _load_model(args.model_path, args.algorithm) if args.model_path else None
+    rl_model = _load_model(args.model_path, args.algorithm, cfg) if args.model_path else None
     solved_criteria = solved_criteria_from_config(cfg)
     reset_options: dict[str, Any] = {}
     if args.student_id:

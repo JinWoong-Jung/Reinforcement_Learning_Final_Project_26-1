@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -14,6 +15,8 @@ from env.exam_env import ExamStrategyEnv
 from env.problem import Problem
 from env.state import ExamState, solved_criteria_from_config
 from utils.io import save_json, save_results_csv
+
+from agents.train_rl import _load_obs_normalizer
 
 
 HeuristicSelector = Callable[[ExamStrategyEnv], np.ndarray]
@@ -158,9 +161,20 @@ def evaluate_policy(
     rl_algorithm: str = "ppo",
     seed: int = 42,
     realized_rollouts: int = 100,
+    obs_stats_path: str | None = None,
 ) -> dict[str, Any]:
     if policy_name not in HEURISTIC_MAP and rl_model is None:
         raise ValueError("For non-heuristic policy_name, provide rl_model.")
+
+    is_dqn = rl_model is not None and rl_algorithm.lower() == "dqn"
+
+    # Load obs normalizer from obs_stats.npz (only used for RL models).
+    _fn = _load_obs_normalizer(obs_stats_path) if rl_model is not None else None
+
+    def _norm(o: np.ndarray) -> np.ndarray:
+        if _fn is None:
+            return o
+        return _fn(np.asarray(o, dtype=np.float32))
 
     records: list[EpisodeRecord] = []
     solved_criteria = solved_criteria_from_config(config)
@@ -178,13 +192,13 @@ def evaluate_policy(
             reset_options["student_level"] = ep_level
             ep_student_level = ep_level
 
-        is_dqn = rl_model is not None and rl_algorithm.lower() == "dqn"
         base_env = (
             _build_env(config=config, for_dqn=is_dqn, seed=seed + ep)
             if rl_model is not None
             else ExamStrategyEnv(config=config, random_seed=seed + ep)
         )
         obs, _ = base_env.reset(seed=seed + ep, options=reset_options)
+        obs = _norm(obs)
 
         done = False
         truncated = False
@@ -199,6 +213,7 @@ def evaluate_policy(
                 action = heuristic_action(base_env, policy_name)
 
             obs, reward, done, truncated, info = base_env.step(action)
+            obs = _norm(obs)
             ep_reward += float(reward)
 
             state = base_env.state

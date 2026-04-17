@@ -50,66 +50,40 @@ dynamics:
 
 reward:
   next:
-    penalty: 0.0
+    penalty: -0.002
     new_problem_bonus: 0.0
     coverage_bonus_scale: 0.0
     coverage_bonus_power: 1.0
-    no_work_revisit_penalty: 0.0
-    first_pass:
-      sequential_bonus: 0.0
-      revisit_penalty: 0.0
+    no_work_revisit_penalty: -0.02
+    first_pass: {sequential_bonus: 0.0, revisit_penalty: 0.0}
     difficulty_exit:
-      easy:
-        low_conf_threshold: 0.0
-        low_conf_penalty: 0.0
-        ready_threshold: 1.1
-        ready_bonus: 0.0
-      mid:
-        low_conf_threshold: 0.0
-        low_conf_penalty: 0.0
-        ready_threshold: 1.1
-        ready_bonus: 0.0
-      hard:
-        defer_threshold: 0.0
-        defer_bonus: 0.0
-        ready_threshold: 1.1
-        ready_bonus: 0.0
+      easy: {low_conf_threshold: 0.0, low_conf_penalty: 0.0, ready_threshold: 1.1, ready_bonus: 0.0}
+      mid:  {low_conf_threshold: 0.0, low_conf_penalty: 0.0, ready_threshold: 1.1, ready_bonus: 0.0}
+      hard: {defer_threshold: 0.0,    defer_bonus: 0.0,      ready_threshold: 1.1, ready_bonus: 0.0}
   solve_more:
     penalty: 0.0
-    low_marginal_gain:
-      subjective_threshold: 0.0
-      objective_threshold: 0.0
-      penalty: 0.0
+    low_marginal_gain: {subjective_threshold: 0.0, objective_threshold: 0.0, penalty: 0.0}
     saturation:
-      subjective:
-        threshold: 1.1
-        penalty: 0.0
-      objective:
-        threshold: 1.1
-        penalty: 0.0
-    streak:
-      threshold: 9999
-      penalty: 0.0
-      extra_penalty_scale: 0.0
-      max_extra_steps: 0
+      subjective: {threshold: 1.1, penalty: 0.0}
+      objective:  {threshold: 1.1, penalty: 0.0}
+    streak: {threshold: 9999, penalty: 0.0, extra_penalty_scale: 0.0, max_extra_steps: 0}
   terminal:
     timeout_penalty: 0.0
-    completion_bonus: 0.0
+    completion_bonus: 0.5
     concentration:
-      top1:
-        threshold: 1.1
-        penalty_scale: 0.0
-      top2:
-        threshold: 1.1
-        penalty_scale: 0.0
+      top1: {threshold: 1.1, penalty_scale: 0.0}
+      top2: {threshold: 1.1, penalty_scale: 0.0}
 
 training:
   algorithm: "dqn"
   device: "cpu"
-  total_steps: 1000000
+  total_steps: 10000000
   eval_episodes: 100
-  progress_log_freq: 10000
-  checkpoint_freq: 10000
+  progress_log_freq: 50000
+  checkpoint_freq: 500000
+  score_log_freq: 500000
+  score_log_eval_episodes: 5
+  n_envs: 8
   strategy_constraint:
     name: null
 
@@ -132,11 +106,11 @@ ppo:
   net_arch: [256, 256]
 
 dqn:
-  learning_rate: 1.0e-4
-  gamma: 0.99
+  learning_rate: 3.0e-4
+  gamma: 0.995
   buffer_size: 100000
   learning_starts: 10000
-  batch_size: 128
+  batch_size: 256
   train_freq: 4
   target_update_interval: 1000
   exploration_initial_eps: 1.0

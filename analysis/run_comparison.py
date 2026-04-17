@@ -36,8 +36,11 @@ if PROJECT_ROOT not in sys.path:
 
 import numpy as np
 
+from agents.dpo_model import DPOPolicyModel
 from agents.heuristic_agents import HEURISTIC_POLICIES
 from analysis.evaluator import evaluate_policy
+from agents.train_rl import _build_env
+from utils.model_compat import build_sb3_custom_objects, install_numpy_pickle_compat
 from utils.io import load_config, save_results_csv
 
 
@@ -50,10 +53,9 @@ def _find_rl_models(runs_dir: str) -> list[dict]:
 
     Looks for patterns:
         <runs_dir>/**/checkpoints/*_final.zip
-        <runs_dir>/**/checkpoints/ppo_final.zip
-        <runs_dir>/**/checkpoints/dqn_final.zip
+        <runs_dir>/**/checkpoints/*_final.pt
 
-    Returns a list of dicts with keys: path (without .zip), algorithm, run_name.
+    Returns a list of dicts with keys: path, algorithm, run_name, obs_stats_path.
     """
     if not os.path.isdir(runs_dir):
         return []
@@ -66,26 +68,44 @@ def _find_rl_models(runs_dir: str) -> list[dict]:
             dirs.clear()
             continue
         for fname in files:
-            if not fname.endswith("_final.zip"):
+            if not (fname.endswith("_final.zip") or fname.endswith("_final.pt")):
                 continue
-            zip_path = os.path.join(root, fname)
-            model_path = zip_path[:-4]  # strip .zip — SB3 loads without extension
-            stem = fname[:-4]            # e.g. "ppo_final"
+            file_path = os.path.join(root, fname)
+            if fname.endswith(".zip"):
+                model_path = file_path[:-4]  # strip .zip — SB3 loads without extension
+                stem = fname[:-4]
+            else:
+                model_path = file_path
+                stem = fname[:-3]
             algo = stem.split("_")[0].lower()  # "ppo" or "dqn"
-            run_name = os.path.basename(os.path.dirname(os.path.dirname(zip_path)))
-            found.append({"path": model_path, "algorithm": algo, "run_name": run_name})
+            run_name = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
+            # Look for obs normalisation stats next to the model checkpoint.
+            obs_stats_path = os.path.join(root, "obs_stats.npz")
+            found.append({
+                "path": model_path,
+                "algorithm": algo,
+                "run_name": run_name,
+                "obs_stats_path": obs_stats_path if os.path.exists(obs_stats_path) else None,
+            })
     return found
 
 
-def _load_rl_model(model_path: str, algorithm: str):
-    """Load a stable-baselines3 model from disk."""
+def _load_rl_model(model_path: str, algorithm: str, config: dict):
+    """Load a trained model from disk."""
     try:
+        if algorithm == "dpo":
+            return DPOPolicyModel.load(model_path)
+        install_numpy_pickle_compat()
+        is_dqn = algorithm == "dqn"
+        seed = int(config.get("experiment", {}).get("seed", 42))
+        env = _build_env(config=config, for_dqn=is_dqn, seed=seed)
+        custom_objects = build_sb3_custom_objects(config, algorithm, env)
         if algorithm == "ppo":
             from stable_baselines3 import PPO
-            return PPO.load(model_path)
+            return PPO.load(model_path, env=env, custom_objects=custom_objects)
         if algorithm == "dqn":
             from stable_baselines3 import DQN
-            return DQN.load(model_path)
+            return DQN.load(model_path, env=env, custom_objects=custom_objects)
     except Exception as e:
         print(f"  [warn] Failed to load {model_path}: {e}", file=sys.stderr)
     return None
@@ -198,13 +218,14 @@ def run_comparison(
     if runs_dir:
         models = _find_rl_models(runs_dir)
         if not models:
-            print(f"\n[info] No *_final.zip models found under {runs_dir}")
+            print(f"\n[info] No *_final.zip or *_final.pt models found under {runs_dir}")
         else:
             print(f"\nEvaluating {len(models)} RL model(s) from {runs_dir}…")
         for m in models:
             label = f"{m['algorithm'].upper()} ({m['run_name']})"
-            print(f"  {label}…", end=" ", flush=True)
-            model = _load_rl_model(m["path"], m["algorithm"])
+            norm_tag = " +ObsNorm" if m.get("obs_stats_path") else " [no obs norm!]"
+            print(f"  {label}{norm_tag}…", end=" ", flush=True)
+            model = _load_rl_model(m["path"], m["algorithm"], config)
             if model is None:
                 print("SKIP (load failed)")
                 continue
@@ -217,6 +238,7 @@ def run_comparison(
                 rl_algorithm=m["algorithm"],
                 seed=42,
                 realized_rollouts=realized_rollouts,
+                obs_stats_path=m.get("obs_stats_path"),
             )
             s = result["summary"]
             row = {

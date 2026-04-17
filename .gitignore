@@ -1,3 +1,8 @@
 __pycache__/
 runs/
 .pytest_cache/
+PhaseA.md
+PhaseB.md
+.agents/
+AGENTS.md
+TODO.md

@@ -70,9 +70,10 @@
 ### 3. 에이전트(`agents/`)
 
 - `agents/train_rl.py`
-  - Stable-Baselines3 기반 PPO, DQN 학습을 담당한다.
+  - Stable-Baselines3 기반 PPO, DQN과 preference-based DPO 학습을 담당한다.
   - PPO는 환경의 `MultiDiscrete` action space를 그대로 사용한다.
   - DQN은 `DiscreteActionWrapper`를 통해 `action_type x target_problem_idx` 조합을 단일 이산 행동으로 펼쳐서 사용한다.
+  - DPO는 heuristic teacher가 만든 action preference pair를 이용해 별도 PyTorch policy를 학습한다.
   - `training.strategy_constraint`가 설정되면 baseline 실험용 action wrapper를 적용한다.
     - `fixed_order_free_time`: 문제 순서를 1번에서 30번으로 고정하고, 남은 문제의 최소 풀이 시간을 예약한 뒤 현재 문제를 더 풀지 다음 문제로 넘어갈지만 학습한다.
     - `equal_time_free_order`: 각 문제 풀이 시간을 동일 budget으로 고정하고, 다음에 방문할 문제 순서만 학습한다.
@@ -144,7 +145,7 @@
 실행 예시는 다음 흐름으로 이해하면 된다.
 
 1. `main.py --mode train`
-   - config를 읽고 PPO 또는 DQN을 학습한다.
+   - config를 읽고 PPO, DQN, 또는 DPO를 학습한다.
    - 결과는 `runs/<algo>_<timestamp>/` 아래에 checkpoint, tensorboard log, eval 결과로 저장된다.
    - baseline 1은 `configs/baseline_fixed_order_free_time.yaml`, baseline 2는 `configs/baseline_equal_time_free_order.yaml`로 실행한다.
 2. `main.py --mode eval --model-path ...`
