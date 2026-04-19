@@ -68,7 +68,7 @@ We model test-taking as a sequential decision-making problem.
 The confidence score for each problem is modeled as
 
 $$
-p_i(t)=c_i+(1-c_i)\,\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
+p_i(t)=c_i+(1-c_i)\space\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
 $$
 
 where the current default settings are:
@@ -100,7 +100,7 @@ We then add a small number of shaping terms, and the final reward used for RL be
 
 $$
 \begin{aligned}
-r_t =\;& \Delta U \\
+r_t = \space & \Delta U \\
 &+ \mathbb{1}[\text{next}] \cdot (-0.002) \\
 &+ \mathbb{1}[\text{no-work revisit}] \cdot (-0.02) \\
 &+ \mathbb{1}[\text{terminal}] \cdot \left(0.5 \cdot \text{coverage fraction}\right)
