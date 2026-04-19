@@ -1,25 +1,16 @@
 {
   "noise": {
-    "skill_std": 0.03
+    "theta_std": 0.03
   },
   "levels": {
     "low": {
-      "skill_global": 0.38,
-      "skill_speed": 0.42,
-      "skill_accuracy": 0.4,
-      "stress_tolerance": 0.36
+      "theta": 1.0
     },
     "mid": {
-      "skill_global": 0.58,
-      "skill_speed": 0.56,
-      "skill_accuracy": 0.6,
-      "stress_tolerance": 0.52
+      "theta": 2.0
     },
     "high": {
-      "skill_global": 0.8,
-      "skill_speed": 0.74,
-      "skill_accuracy": 0.82,
-      "stress_tolerance": 0.7
+      "theta": 3.0
     }
   }
 }

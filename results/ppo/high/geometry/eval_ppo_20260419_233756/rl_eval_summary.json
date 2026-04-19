@@ -1,0 +1,16 @@
+{
+  "episodes": 100.0,
+  "mean_reward": 74.0301963277237,
+  "mean_score": 94.02219632772366,
+  "mean_solved_count": 30.0,
+  "mean_visited_count": 30.0,
+  "mean_coverage_fraction": 1.0,
+  "mean_objective_dominance_rate": 1.0,
+  "mean_subjective_confidence": 0.9395428393016672,
+  "mean_subjective_solved_rate": 1.0,
+  "mean_objective_solved_rate": 1.0,
+  "mean_top1_time_share": 0.15703971119133578,
+  "mean_top2_time_share": 0.2689530685920577,
+  "mean_remaining_time_sec": 0.0,
+  "mean_steps": 232.0
+}

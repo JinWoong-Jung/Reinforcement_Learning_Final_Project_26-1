@@ -7,12 +7,10 @@ from env.problem import Problem, choice_entropy
 from env.student import StudentProfile
 
 
-def _make_student(ability: float = 0.5) -> StudentProfile:
+def _make_student(theta: float = 0.0) -> StudentProfile:
     return StudentProfile(
         student_id="test",
-        skill_global=ability,
-        skill_speed=ability,
-        skill_accuracy=ability,
+        theta=theta,
     )
 
 
@@ -70,10 +68,10 @@ class DynamicsMonotonicityTests(unittest.TestCase):
         self._assert_monotone(_make_subjective(correct_rate=0.50, difficulty=0.5), _make_student(0.5))
 
     def test_monotone_low_ability_student(self):
-        self._assert_monotone(_make_objective(correct_rate=0.50, difficulty=0.5), _make_student(0.1))
+        self._assert_monotone(_make_objective(correct_rate=0.50, difficulty=0.5), _make_student(-1.0))
 
     def test_monotone_high_ability_student(self):
-        self._assert_monotone(_make_objective(correct_rate=0.50, difficulty=0.5), _make_student(0.9))
+        self._assert_monotone(_make_objective(correct_rate=0.50, difficulty=0.5), _make_student(1.0))
 
     def test_monotone_with_custom_dynamics_cfg(self):
         cfg = {"alpha": 3.0, "tau": 30.0, "beta": 2.5, "ambiguity_weight": 1.0}
@@ -81,13 +79,13 @@ class DynamicsMonotonicityTests(unittest.TestCase):
 
 
 class DynamicsAnchorSanityTests(unittest.TestCase):
-    """Easier problems (higher correct_rate / lower difficulty) must yield
+    """Easier problems (lower difficulty) must yield
     higher confidence than harder ones at the same time."""
 
-    def test_easier_correct_rate_means_higher_confidence(self):
+    def test_easier_difficulty_means_higher_confidence(self):
         student = _make_student(0.5)
-        easy = _make_objective(correct_rate=0.85, difficulty=0.5)
-        hard = _make_objective(correct_rate=0.15, difficulty=0.5)
+        easy = _make_objective(correct_rate=0.15, difficulty=0.1)
+        hard = _make_objective(correct_rate=0.85, difficulty=0.9)
         for t in [30, 90, 300]:
             conf_easy = confidence_curve(easy, student, t)
             conf_hard = confidence_curve(hard, student, t)
@@ -96,37 +94,35 @@ class DynamicsAnchorSanityTests(unittest.TestCase):
                 msg=f"At t={t}s, easy ({conf_easy:.4f}) should beat hard ({conf_hard:.4f})",
             )
 
-    def test_anchor_source_correct_rate_takes_priority(self):
+    def test_anchor_source_difficulty_takes_priority_by_default(self):
         student = _make_student(0.5)
-        # Both have difficulty=0.5, but correct_rate differs → correct_rate wins
-        high_cr = _make_objective(correct_rate=0.80, difficulty=0.5)
-        low_cr = _make_objective(correct_rate=0.20, difficulty=0.5)
+        # Both have the same correct_rate, but difficulty differs → difficulty wins
+        easy = _make_objective(correct_rate=0.50, difficulty=0.1)
+        hard = _make_objective(correct_rate=0.50, difficulty=0.9)
         t = 90
-        self.assertGreater(confidence_curve(high_cr, student, t), confidence_curve(low_cr, student, t))
+        self.assertGreater(confidence_curve(easy, student, t), confidence_curve(hard, student, t))
 
     def test_anchor_falls_back_to_difficulty_when_correct_rate_is_none(self):
         student = _make_student(0.5)
-        # No correct_rate: anchor = difficulty field
         easy = _make_objective(correct_rate=None, difficulty=0.1)
         hard = _make_objective(correct_rate=None, difficulty=0.9)
         t = 90
         self.assertGreater(confidence_curve(easy, student, t), confidence_curve(hard, student, t))
 
-    def test_anchor_fallback_config_difficulty(self):
+    def test_anchor_source_correct_rate_can_be_requested_explicitly(self):
         student = _make_student(0.5)
-        cfg = {"anchor_source": "difficulty"}
-        # Ignores correct_rate (even if present), uses difficulty
+        cfg = {"anchor_source": "correct_rate"}
         easy = Problem(
-            pid=0, difficulty_level="중", difficulty=0.1, score=3, error_rate=0.4,
+            pid=0, difficulty_level="중", difficulty=0.5, score=3, error_rate=0.4,
             problem_type="objective", actual_answer=1,
             choice_rate={"1": 0.2, "2": 0.2, "3": 0.2, "4": 0.2, "5": 0.2},
-            correct_rate=0.5,  # same correct_rate for both
+            correct_rate=0.8,
         )
         hard = Problem(
-            pid=1, difficulty_level="중", difficulty=0.9, score=3, error_rate=0.4,
+            pid=1, difficulty_level="중", difficulty=0.5, score=3, error_rate=0.4,
             problem_type="objective", actual_answer=1,
             choice_rate={"1": 0.2, "2": 0.2, "3": 0.2, "4": 0.2, "5": 0.2},
-            correct_rate=0.5,  # same correct_rate for both
+            correct_rate=0.2,
         )
         self.assertGreater(
             confidence_curve(easy, student, 90, cfg),
@@ -135,8 +131,8 @@ class DynamicsAnchorSanityTests(unittest.TestCase):
 
     def test_more_able_student_has_higher_confidence(self):
         problem = _make_objective(correct_rate=0.50, difficulty=0.5)
-        low = _make_student(0.1)
-        high = _make_student(0.9)
+        low = _make_student(-1.0)
+        high = _make_student(1.0)
         for t in [30, 90, 300]:
             self.assertGreater(
                 confidence_curve(problem, high, t),
@@ -203,18 +199,18 @@ class DynamicsAmbiguitySanityTests(unittest.TestCase):
 class DynamicsFloorTests(unittest.TestCase):
     """Floor probabilities must match expected semantics."""
 
-    def test_objective_floor_is_one_over_num_choices(self):
+    def test_objective_floor_is_fixed_to_point_two(self):
         for k in [2, 4, 5]:
             choice_rate = {str(i + 1): 1.0 / k for i in range(k)}
             problem = Problem(
                 pid=0, difficulty_level="하", difficulty=0.1, score=2, error_rate=0.1,
                 problem_type="objective", actual_answer=1, choice_rate=choice_rate,
             )
-            self.assertAlmostEqual(guessing_prob(problem), 1.0 / k, places=6)
+            self.assertAlmostEqual(guessing_prob(problem), 0.2, places=6)
 
-    def test_subjective_floor_defaults_to_002(self):
+    def test_subjective_floor_defaults_to_zero(self):
         problem = _make_subjective(correct_rate=0.5, difficulty=0.5)
-        self.assertAlmostEqual(guessing_prob(problem), 0.02, places=6)
+        self.assertAlmostEqual(guessing_prob(problem), 0.0, places=6)
 
     def test_subjective_floor_is_configurable(self):
         problem = _make_subjective(correct_rate=0.5, difficulty=0.5)
@@ -222,7 +218,7 @@ class DynamicsFloorTests(unittest.TestCase):
         self.assertAlmostEqual(guessing_prob(problem, cfg), 0.05, places=6)
 
     def test_confidence_at_t0_is_at_least_floor(self):
-        student = _make_student(0.1)
+        student = _make_student(-1.0)
         for problem in [
             _make_objective(correct_rate=0.05, difficulty=0.95),
             _make_subjective(correct_rate=0.05, difficulty=0.95),
@@ -261,8 +257,13 @@ class DynamicsParamsTests(unittest.TestCase):
 
     def test_higher_ability_gives_higher_theta(self):
         problem = _make_objective(correct_rate=0.5, difficulty=0.5)
-        low = _make_student(0.1)
-        high = _make_student(0.9)
+        low = _make_student(-1.0)
+        high = _make_student(1.0)
         _, theta_low, *_ = confidence_params(problem, low)
         _, theta_high, *_ = confidence_params(problem, high)
         self.assertGreater(theta_high, theta_low)
+
+    def test_profile_theta_is_used_directly(self):
+        problem = _make_objective(correct_rate=0.5, difficulty=0.5)
+        _, theta, *_ = confidence_params(problem, _make_student(2.5))
+        self.assertAlmostEqual(theta, 2.5)

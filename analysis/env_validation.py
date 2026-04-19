@@ -99,7 +99,7 @@ def _resolve_config(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _difficulty_anchor(problem: Problem, dynamics_cfg: dict[str, Any]) -> float:
-    anchor_source = str(dynamics_cfg.get("anchor_source", "correct_rate"))
+    anchor_source = str(dynamics_cfg.get("anchor_source", "difficulty"))
     if anchor_source == "correct_rate" and problem.correct_rate is not None:
         return float(max(0.0, min(1.0, 1.0 - problem.correct_rate)))
     return float(max(0.0, min(1.0, problem.difficulty)))

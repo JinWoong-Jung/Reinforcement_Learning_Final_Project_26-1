@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Any
 
 from analysis.evaluator import evaluate_heuristics_table, evaluate_policy, save_results_json, save_table_csv
-from agents.train_rl import evaluate_trained_model, train_from_config
+from agents.train_rl import _build_env, evaluate_trained_model, train_from_config
 from utils.io import load_config
+from utils.model_compat import build_sb3_custom_objects, install_numpy_pickle_compat
 from utils.seed import set_global_seed
 
 try:
@@ -26,16 +27,31 @@ def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def _load_trained_model(model_path: str, algorithm: str):
+def _resolve_obs_stats_path(model_path: str) -> str | None:
+    model_dir = os.path.dirname(model_path)
+    candidate = os.path.join(model_dir, "obs_stats.npz")
+    if os.path.exists(candidate):
+        return candidate
+    stem_candidate = os.path.join(os.path.splitext(model_path)[0], "obs_stats.npz")
+    if os.path.exists(stem_candidate):
+        return stem_candidate
+    return None
+
+
+def _load_trained_model(model_path: str, algorithm: str, config: dict[str, Any]):
     algo = algorithm.lower()
+    install_numpy_pickle_compat()
+    seed = int(config.get("experiment", {}).get("seed", 42))
+    env = _build_env(config=config, for_dqn=algo == "dqn", seed=seed)
+    custom_objects = build_sb3_custom_objects(config, algo, env)
     if algo == "ppo":
         if PPO is None:
             raise ImportError("stable-baselines3 is required to load PPO model.")
-        return PPO.load(model_path)
+        return PPO.load(model_path, env=env, custom_objects=custom_objects)
     if algo == "dqn":
         if DQN is None:
             raise ImportError("stable-baselines3 is required to load DQN model.")
-        return DQN.load(model_path)
+        return DQN.load(model_path, env=env, custom_objects=custom_objects)
     raise ValueError("algorithm must be 'ppo' or 'dqn'")
 
 
@@ -84,13 +100,15 @@ def run_eval(
     seed: int,
 ) -> dict[str, Any]:
     student_cfg = dict(config.get("student", {}))
-    model = _load_trained_model(model_path=model_path, algorithm=algorithm)
+    obs_stats_path = _resolve_obs_stats_path(model_path)
+    model = _load_trained_model(model_path=model_path, algorithm=algorithm, config=config)
     summary = evaluate_trained_model(
         model=model,
         config=config,
         n_episodes=episodes,
         algorithm=algorithm,
         seed=seed,
+        obs_stats_path=obs_stats_path,
     )
     detailed = evaluate_policy(
         config=config,
@@ -101,6 +119,7 @@ def run_eval(
         rl_model=model,
         rl_algorithm=algorithm,
         seed=seed,
+        obs_stats_path=obs_stats_path,
     )
 
     out_dir = os.path.join(output_root, f"eval_{algorithm}_{_timestamp()}")

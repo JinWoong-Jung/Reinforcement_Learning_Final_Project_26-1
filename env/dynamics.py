@@ -57,12 +57,12 @@ def _scfg(cfg: dict | None, *path: str, default: str) -> str:
 def guessing_prob(problem: Problem, dynamics_cfg: dict | None = None) -> float:
     """Chance-level floor probability for a problem.
 
-    - objective: 1 / number_of_choices  (e.g. 0.2 for 5-choice)
-    - subjective: configurable epsilon (default 0.02)
+    - objective: fixed 0.2
+    - subjective: configurable epsilon (default 0.0)
     """
-    if problem.problem_type == "objective" and problem.choice_rate:
-        return 1.0 / max(len(problem.choice_rate), 1)
-    subjective_floor = _dcfg(dynamics_cfg, "subjective_floor", default=0.02)
+    if problem.problem_type == "objective":
+        return 0.2
+    subjective_floor = _dcfg(dynamics_cfg, "subjective_floor", default=0.0)
     return float(subjective_floor)
 
 
@@ -70,30 +70,21 @@ def _difficulty_anchor(problem: Problem, dynamics_cfg: dict | None = None) -> fl
     """Return the main difficulty anchor in [0, 1].
 
     Priority:
-      1. correct_rate  (1 - correct_rate gives difficulty)
-      2. difficulty field as fallback
-    Controlled by dynamics_cfg['anchor_source'] = 'correct_rate' | 'difficulty'.
+      1. difficulty
+      2. correct_rate-derived difficulty as a legacy fallback
+    Controlled by dynamics_cfg['anchor_source'] = 'difficulty' | 'correct_rate'.
     """
-    anchor_source = _scfg(dynamics_cfg, "anchor_source", default="correct_rate")
+    anchor_source = _scfg(dynamics_cfg, "anchor_source", default="difficulty")
+    if anchor_source == "difficulty":
+        return _clamp(problem.difficulty)
     if anchor_source == "correct_rate" and problem.correct_rate is not None:
         return _clamp(1.0 - problem.correct_rate)
     return _clamp(problem.difficulty)
 
 
-def _student_ability(student: StudentProfile, dynamics_cfg: dict | None = None) -> float:
-    """Weighted combination of student skill dimensions, in [0, 1]."""
-    w_global = _dcfg(dynamics_cfg, "ability_weights", "skill_global", default=0.45)
-    w_accuracy = _dcfg(dynamics_cfg, "ability_weights", "skill_accuracy", default=0.30)
-    w_speed = _dcfg(dynamics_cfg, "ability_weights", "skill_speed", default=0.25)
-    total_w = w_global + w_accuracy + w_speed
-    if total_w <= 0.0:
-        total_w = 1.0
-    ability = (
-        w_global * student.skill_global
-        + w_accuracy * student.skill_accuracy
-        + w_speed * student.skill_speed
-    ) / total_w
-    return _clamp(ability)
+def _student_theta(student: StudentProfile) -> float:
+    """Student ability is controlled directly by the profile theta."""
+    return float(student.theta)
 
 
 def confidence_params(
@@ -107,7 +98,7 @@ def confidence_params(
         (floor, theta, beta, gamma, alpha, tau)
 
         floor  – chance-level probability floor (c_i)
-        theta  – student ability logit: theta_scale * (ability - 0.5)
+        theta  – student ability logit from the student profile
         beta   – difficulty weight applied to difficulty_anchor
         gamma  – ambiguity weight applied to choice_entropy
         alpha  – time learning rate (slope of log-time curve)
@@ -115,14 +106,12 @@ def confidence_params(
     """
     floor = guessing_prob(problem, dynamics_cfg)
 
-    ability = _student_ability(student, dynamics_cfg)
-    theta_scale = _dcfg(dynamics_cfg, "theta_scale", default=3.0)
-    theta = theta_scale * (ability - 0.5)
+    theta = _student_theta(student)
 
-    beta = _dcfg(dynamics_cfg, "beta", default=2.0)
-    gamma = _dcfg(dynamics_cfg, "ambiguity_weight", default=0.5)
-    alpha = _dcfg(dynamics_cfg, "alpha", default=2.0)
-    tau = max(_dcfg(dynamics_cfg, "tau", default=60.0), 1.0)
+    beta = _dcfg(dynamics_cfg, "beta", default=2.9)
+    gamma = _dcfg(dynamics_cfg, "ambiguity_weight", default=1.7)
+    alpha = _dcfg(dynamics_cfg, "alpha", default=1.6)
+    tau = max(_dcfg(dynamics_cfg, "tau", default=200.0), 1.0)
 
     return float(floor), float(theta), float(beta), float(gamma), float(alpha), float(tau)
 
@@ -141,7 +130,7 @@ def confidence_curve(
     Where:
         floor  = chance-level guessing probability
         theta  = student ability logit  (positive → more able)
-        d      = difficulty anchor in [0,1]  (1 - correct_rate or difficulty)
+        d      = difficulty anchor in [0,1]  (difficulty by default)
         a      = ambiguity feature in [0,1]  (normalized choice entropy)
         alpha  = time learning rate
         tau    = time scale (seconds)

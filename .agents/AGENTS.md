@@ -123,16 +123,13 @@
 
 학생은 다음 능력치를 가진다.
 
-- 전반 실력 `skill_global`
-- 속도 `skill_speed`
-- 정확도 `skill_accuracy`
-- 스트레스 내성 `stress_tolerance`
+- 직접 지정되는 능력 logit `theta`
 
 현재 구현에서 confidence 곡선은 `env/dynamics.py`의 logistic 모델로 결정된다.
 - `p_i(t|s) = floor + (1-floor) × sigmoid(θ − β·d − γ·a + α·log(1 + t/τ))`
-  - floor: 1/K (객관식) 또는 subjective_floor (주관식)
-  - θ: 학생 능력 logit
-  - d: 난도 anchor = `1 − correct_rate` (없으면 `difficulty` fallback)
+  - floor: 0.2 (객관식) 또는 subjective_floor (주관식, 기본 0.0)
+  - θ: 학생 프로필에 직접 저장된 능력 logit
+  - d: 난도 anchor = `difficulty`
   - a: choice entropy (ambiguity; 0=명확, 1=최대혼란)
   - α, τ: 시간 학습 속도·스케일
 - `difficulty`, `correct_rate` 등 비공개 수치는 환경 내부에만 사용된다. 반면 `difficulty_level`, `score`, `problem_type`, `error_rate`, 타입별 confidence 슬롯은 observation에 포함된다.

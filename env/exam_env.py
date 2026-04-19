@@ -446,13 +446,14 @@ class ExamStrategyEnv(gym.Env):
         if streak_threshold >= 0 and self.state.same_problem_streak >= streak_threshold:
             return "streak_limit"
 
-        difficulty_budget = self._difficulty_time_budget_sec(problem)
-        if (
-            difficulty_budget is not None
-            and self._has_unvisited_other_than(current_idx)
-            and progress.time_spent_sec >= difficulty_budget
-        ):
-            return "difficulty_time_budget_reached"
+        if bool(cfg.get("use_difficulty_time_priors", True)):
+            difficulty_budget = self._difficulty_time_budget_sec(problem)
+            if (
+                difficulty_budget is not None
+                and self._has_unvisited_other_than(current_idx)
+                and progress.time_spent_sec >= difficulty_budget
+            ):
+                return "difficulty_time_budget_reached"
 
         if problem.problem_type == "objective":
             threshold = float(cfg.get("objective_conf_threshold", 1.1))

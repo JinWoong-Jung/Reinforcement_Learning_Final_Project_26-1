@@ -14,7 +14,7 @@ if PROJECT_ROOT not in sys.path:
 
 from agents.dpo_model import DPOPolicyModel
 from agents.heuristic_agents import heuristic_action
-from agents.train_rl import _build_env
+from agents.train_rl import _build_env, _load_obs_normalizer
 from env.exam_env import ExamStrategyEnv
 from env.state import solved_criteria_from_config
 from utils.model_compat import build_sb3_custom_objects, install_numpy_pickle_compat
@@ -71,6 +71,18 @@ def _resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     if args.student_level:
         cfg["student"]["fixed_level"] = args.student_level
     return cfg
+
+
+def _resolve_obs_stats_path(run_dir: str | None, model_path: str | None) -> str | None:
+    candidates: list[str] = []
+    if model_path:
+        candidates.append(os.path.join(os.path.dirname(model_path), "obs_stats.npz"))
+    if run_dir:
+        candidates.append(os.path.join(run_dir, "checkpoints", "obs_stats.npz"))
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def _topk_time_share(problem_time_spent: list[float], k: int) -> float:
@@ -130,6 +142,7 @@ def _run_episode(
     env: ExamStrategyEnv,
     *,
     rl_model: Any | None,
+    obs_normalizer,
     policy_name: str | None,
     seed: int,
     reset_options: dict[str, Any],
@@ -137,6 +150,8 @@ def _run_episode(
     solved_criteria: dict[str, float],
 ) -> dict[str, Any]:
     obs, info = env.reset(seed=seed, options=reset_options)
+    if obs_normalizer is not None:
+        obs = obs_normalizer(np.asarray(obs, dtype=np.float32))
     trajectory: list[dict[str, Any]] = []
     total_reward = 0.0
     done = False
@@ -168,6 +183,8 @@ def _run_episode(
             action = heuristic_action(env, policy_name)
 
         obs, reward, done, truncated, step_info = env.step(action)
+        if obs_normalizer is not None:
+            obs = obs_normalizer(np.asarray(obs, dtype=np.float32))
         total_reward += float(reward)
 
         if step_info["action_name"] == "solve_more" and prev_idx >= 0:
@@ -335,6 +352,8 @@ def main() -> None:
         raise ValueError("Provide exactly one of --model-path or --policy-name")
 
     rl_model = _load_model(args.model_path, args.algorithm, cfg) if args.model_path else None
+    obs_stats_path = _resolve_obs_stats_path(args.run_dir, args.model_path) if rl_model is not None else None
+    obs_normalizer = _load_obs_normalizer(obs_stats_path) if rl_model is not None else None
     solved_criteria = solved_criteria_from_config(cfg)
     reset_options: dict[str, Any] = {}
     if args.student_id:
@@ -353,6 +372,7 @@ def main() -> None:
             _run_episode(
                 env,
                 rl_model=rl_model,
+                obs_normalizer=obs_normalizer,
                 policy_name=args.policy_name,
                 seed=args.seed + ep,
                 reset_options=reset_options,

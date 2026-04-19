@@ -87,7 +87,7 @@ class ProblemProgress:
     def initialize_for_problem(self, problem: Problem) -> None:
         self.time_spent_sec = 0.0
         if problem.problem_type != "objective":
-            self.answer_confidence = 0.02
+            self.answer_confidence = 0.0
             self.choice_confidences = []
             return
 

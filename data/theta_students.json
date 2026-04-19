@@ -1,0 +1,17 @@
+{
+  "students": [
+    {
+      "student_id": "low",
+      "theta": 1.0
+    },
+    {
+      "student_id": "mid",
+      "theta": 2.0
+    },
+    {
+      "student_id": "high",
+      "theta": 3.0
+    }
+  ],
+  "sampling_note": "Direct-theta student profiles for analytic-baseline-aligned experiments."
+}

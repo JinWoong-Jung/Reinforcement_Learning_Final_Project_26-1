@@ -1,0 +1,82 @@
+# Phase B training config: high-theta student policy
+# Based on configs/phaseB/base.yaml with student.fixed_id = "high".
+
+experiment:
+  name: "train_high"
+  seed: 42
+
+exam:
+  total_time_sec: 6000
+  num_problems: 30
+  action_time_unit_sec: 30
+  switch_time_sec: 10
+  randomize_start_problem: true
+  allow_agent_selected_start_problem: false
+  difficulty_time_priors_sec:
+    하: 60
+    중하: 60
+    중: 120
+    상: 300
+    최상: 600
+  first_pass:
+    enabled: true
+    prefer_sequential: true
+    enforce_unvisited_before_revisit: true
+  revisit_policy:
+    prefer_worked_problems: true
+    cooldown_entries: 2
+  solve_more_constraints:
+    enabled: true
+    use_difficulty_time_priors: true
+    objective_conf_threshold: 0.95
+    subjective_conf_threshold: 0.95
+    streak_threshold: 20
+
+student:
+  fixed_id: "high"
+
+dynamics:
+  anchor_source: "difficulty"
+  subjective_floor: 0.0
+  ambiguity_weight: 1.7
+  beta: 2.9
+  alpha: 1.6
+  tau: 200.0
+
+training:
+  algorithm: "dqn"
+  device: "cpu"
+  total_steps: 10000000
+  eval_episodes: 100
+  progress_log_freq: 50000
+  checkpoint_freq: 500000
+  score_log_freq: 500000
+  score_log_eval_episodes: 5
+  n_envs: 8
+  strategy_constraint:
+    name: null
+
+evaluation:
+  solved:
+    subjective_conf_threshold: 0.5
+    objective_conf_threshold: 0.5
+    objective_margin_threshold: 0.05
+
+dqn:
+  learning_rate: 3.0e-4
+  gamma: 0.995
+  buffer_size: 100000
+  learning_starts: 10000
+  batch_size: 256
+  train_freq: 4
+  target_update_interval: 1000
+  exploration_initial_eps: 1.0
+  exploration_final_eps: 0.05
+  exploration_fraction: 0.2
+
+data:
+  exam_paths:
+    - data/25_math_calculus.json
+    - data/25_math_geometry.json
+    - data/25_math_prob_stat.json
+  student_path: data/theta_students.json

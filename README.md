@@ -1,16 +1,46 @@
-# KSAT Exam Strategy via Reinforcement Learning
+<p align="center">
+  <h1 align="center">Optimal Time Allocation in Time-Limited Tests via Reinforcement Learning</h1>
+  <p align="center">
+    <a>Jinwoong Jung</a>
+    ·
+    <a>Yuji Lim</a>
+    ·
+    <a>Sangyun Lee</a>
+    ·
+    <a>Jungwoo Choi</a>
+  </p>
+  <p align="center">
+    <i>Sungkyunkwan University</i><br>
+    <i>AAI2024 - Introduction to Reinforcement Learning</i>
+  </p>
+</p>
 
-**Authors**: 정진웅, 이상윤, 임유지, 최정우  
-**Affiliation**: Sungkyunkwan University  
-**Course**: 2026-1 Introduction to Reinforcement Learning `AAI2014_01` (김재광) Final Project
+## ✨ Project Overview
 
+This project studies how to allocate time across problems in a time-limited exam using reinforcement learning.
+Instead of generating answers directly, the agent learns a policy that decides:
 
-수능 시험 시간 배분 전략을 강화학습으로 최적화하는 프로젝트.
-에이전트는 제한된 시험 시간 내에 어떤 문제에 얼마나 시간을 쓸지 결정해 기대 점수를 최대화한다.
+- whether to spend more time on the current problem,
+- when to move to another problem,
+- how to maximize expected total score under a fixed time budget.
 
-## 설치
+The current RL algorithms used in this repository are:
 
-### `conda` 환경 사용
+- `PPO`
+- `DQN`
+
+The environment models confidence growth over time for each problem and converts it into expected score.
+
+## 🛠️ Installation
+
+### Clone
+
+```bash
+git clone <REPOSITORY_URL>
+cd RLProject
+```
+
+### Conda
 
 ```bash
 conda create -n rlproject python=3.11 -y
@@ -18,68 +48,222 @@ conda activate rlproject
 pip install -r requirements.txt
 ```
 
-## 프로젝트 구조
+### Main Dependencies
 
+- Python 3.11
+- `stable-baselines3`
+- `gymnasium`
+- `numpy`
+- `torch`
+- `matplotlib`
+
+## 🧭 Problem Formulation
+
+We model test-taking as a sequential decision-making problem.
+
+- State: remaining exam time, current problem index, per-problem progress, time spent, difficulty level, score, problem type, confidence representation
+- Action: `solve_more` or `next`
+- Objective: maximize expected total score before time runs out
+
+The confidence score for each problem is modeled as
+
+$$
+p_i(t)=c_i+(1-c_i)\,\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
+$$
+
+where the current default settings are:
+
+| Symbol | Meaning | Current default / definition |
+| --- | --- | --- |
+| $\theta$ | student ability | loaded directly from student profile |
+| $d_i$ | difficulty of problem $i$ | `difficulty` field in the dataset |
+| $a_i$ | ambiguity of problem $i$ | entropy of `choice_rate` |
+| $c_i$ | minimum probability floor | `0.2` for objective, `0.0` for subjective |
+| $\alpha$ | time gain coefficient | `1.6` |
+| $\beta$ | difficulty penalty coefficient | `2.9` |
+| $\gamma$ | ambiguity penalty coefficient | `1.7` |
+| $\tau$ | time scale | `200.0` |
+
+The most basic reward is defined as the change in expected utility:
+
+$$
+r_t = U(s_{t+1}) - U(s_t)
+$$
+
+where the expected utility is defined as
+
+$$
+U(s)=\sum_i \text{score}_i \cdot \text{confidence}_i(s)
+$$
+
+We then add a small number of shaping terms, and the final reward used for RL becomes:
+
+$$
+\begin{aligned}
+r_t =\;& \Delta U \\
+&+ \mathbb{1}[\text{next}] \cdot (-0.002) \\
+&+ \mathbb{1}[\text{no-work revisit}] \cdot (-0.02) \\
+&+ \mathbb{1}[\text{terminal}] \cdot \left(0.5 \cdot \text{coverage fraction}\right)
+\end{aligned}
+$$
+
+<sub>The reward setting can be changed through the `reward` block in the config files.</sub>
+
+Student ability is injected directly through `theta`:
+
+| Student level | Theta |
+| --- | ---: |
+| low | `1.0` |
+| mid | `2.0` |
+| high | `3.0` |
+
+That is, the current implementation does not derive ability from multiple skill weights; instead, each student profile provides `theta` directly, and that value is used in the confidence equation above.
+
+## 📝 Project Structure
+
+```text
+.
+├── agents/        # PPO, DQN training logic and heuristic baselines
+├── analysis/      # evaluation, comparison, trajectory inspection
+├── configs/       # experiment configs for PPO and DQN
+├── data/          # exam datasets and student profiles
+├── env/           # exam environment, dynamics, reward, state
+├── results/       # saved evaluation outputs
+├── runs/          # trained model checkpoints and logs
+├── tests/         # unit tests
+└── utils/         # config loading, seed setup, compatibility helpers
 ```
-configs/          # 실험 설정 (default.yaml, ablation/)
-data/             # 시험 문제 JSON, 학생 프리셋
-env/              # 시험 환경 (Gymnasium)
-agents/           # 휴리스틱 정책, RL 학습
-analysis/         # 평가, 비교표 생성
-tests/            # 엣지케이스 테스트
-```
 
-## Phase A Ablations
+Key entrypoints:
 
-### 1. Switch Cost
+- `main.py`: train, eval, heuristic modes
+- `agents/train_rl.py`: PPO and DQN training
+- `analysis/trajectory_report.py`: trajectory inspection
 
-문제 사이를 이동할 때 드는 시간 비용 `switch_time_sec`를 바꿔, 전환 비용이 전략 성능에 어떤 영향을 주는지 본다.
+## 🗂️ Data
+
+The main exam data in this repository is based on the Korean CSAT mathematics exam administered on `2025.11.13`.
+
+The dataset construction was prepared with reference to materials provided by [MegaStudy](https://www.megastudy.net/megastudy.asp)
+
+Exam JSON fields: `exam_id`, `subject`, `total_time_sec`, `problems`
+
+Problem-level fields: `pid`, `actual_answer`, `difficulty_level`, `difficulty`, `score`, `correct_rate`, `error_rate`, `problem_type`, `choice_rate`
+
+Student JSON fields: `student_id`, `theta`
+
+Examples:
+
+- `data/25_math_calculus.json`
+- `data/25_math_geometry.json`
+- `data/25_math_prob_stat.json`
+
+## 🏋️ How to Run
+
+Use the placeholders below:
+
+- `<algo>`: `ppo` or `dqn`
+- `<level>`: `low`, `mid`, or `high`
+- `<subject>`: `calculus`, `geometry`, or `prob_stat`
+- `<exam_json>`: `data/25_math_calculus.json`, `data/25_math_geometry.json`, or `data/25_math_prob_stat.json`
+- `<RUN_NAME>`: generated run directory name such as `ppo_20260419_171103`
+
+### Train
 
 ```bash
-for cost in 0 5 10 20; do
-  cfg="configs/phaseA/group1_switch_cost/switch_cost_${cost}s.yaml"
-  python analysis/run_comparison.py \
-    --config $cfg \
-    --student-level mid \
-    --episodes 50 \
-    --realized-rollouts 100 \
-    --output results/phaseA/group1_switch_cost/switch_cost_${cost}s/
-done
+python main.py --mode train --config configs/<algo>/train_<level>.yaml --output runs/<algo>/train_<level>
 ```
 
-결과: `switch_cost`가 커질수록 `marginal_gain_greedy`와 `random`의 격차가 커졌고, `10초`가 가장 균형적인 기본값으로 확인되었다.
-
-### 2. Action Granularity
-
-한 번의 `solve_more` 행동이 몇 초를 의미하는지 바꿔, 시간 제어 단위의 적절한 크기를 비교한다.
+### Evaluate
 
 ```bash
-for unit in 10 30 60; do
-  cfg="configs/phaseA/group2_action_granularity/action_${unit}s.yaml"
-  python analysis/run_comparison.py \
-    --config $cfg \
-    --student-level mid \
-    --episodes 50 \
-    --realized-rollouts 100 \
-    --output results/phaseA/group2_action_granularity/action_${unit}s/
-done
+python main.py --mode eval \
+  --config runs/<algo>/train_<level>/<RUN_NAME>/config_snapshot.yaml \
+  --model-path runs/<algo>/train_<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --algorithm <algo> \
+  --exam-data <exam_json> \
+  --episodes 100 \
+  --output results/<algo>/<level>/<subject>
 ```
 
-결과: `10초` 단위의 미세 제어는 성능 이득이 거의 없었고, `60초`가 가장 높은 점수와 가장 적은 step 수를 보여 기본 시간 단위로 채택되었다.
-
-### 3. Student Skill
-
-학생 능력 수준을 `low / mid / high`로 고정해, 능력대에 따라 어떤 전략 차이가 나타나는지 본다.
+### Generate a Trajectory Report
 
 ```bash
-for level in low mid high; do
-  cfg="configs/phaseA/group3_student_skill/student_${level}.yaml"
-  python analysis/run_comparison.py \
-    --config $cfg \
-    --episodes 60 \
-    --realized-rollouts 100 \
-    --output results/phaseA/group3_student_skill/student_${level}/
-done
+python analysis/trajectory_report.py \
+  --run-dir runs/<algo>/train_<level>/<RUN_NAME> \
+  --model-path runs/<algo>/train_<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --algorithm <algo> \
+  --exam-data <exam_json> \
+  --episodes 10 \
+  --max-logged-steps 80 \
+  --output results/<algo>/<level>/<subject>_trajectory.json
 ```
 
-결과: 학생 능력이 높을수록 절대 점수는 상승했지만, `marginal_gain_greedy`의 상대적 이득은 `low`에서 가장 크게 나타났다. 따라서 이후 RL은 범용 정책보다 능력대별 맞춤 정책 추천 방향으로 진행한다.
+### Evaluate Heuristic Baselines
+
+```bash
+python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output results/heuristic
+```
+
+## 📋 Results
+
+### 0. Analytic Baseline
+
+| Ability ($\theta$) | Statics | Calculus | Geographic |
+| --- | ---: | ---: | ---: |
+| low ($\theta=1.0$) | 56.93 | 69.62 | 66.89 |
+| mid ($\theta=2.0$) | 74.71 | 84.69 | 82.80 |
+| high ($\theta=3.0$) | 87.53 | 93.30 | 92.31 |
+
+### 1. PPO
+
+#### 1.1. Mixed-Episode Evaluation
+
+| Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| low | 69.4006 | 49.3995 | 28.44 | 1.0000 | 234.92 |
+| mid | 84.6270 | 64.6188 | 30.00 | 1.0000 | 237.40 |
+| high | 93.2855 | 73.2825 | 30.00 | 1.0000 | 237.78 |
+
+#### 1.2. Per-Subject Evaluation
+
+| Level | Subject | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps | Mean Score Change Rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| low | calculus | 73.7830 | 53.7810 | 29.00 | 1.0000 | 235.00 | +5.98% |
+| low | geometry | 71.2105 | 51.2125 | 30.00 | 1.0000 | 234.00 | +6.46% |
+| low | prob_stat | 63.3035 | 43.2995 | 26.00 | 1.0000 | 236.00 | +11.20% |
+| mid | calculus | 87.4956 | 67.4896 | 30.00 | 1.0000 | 237.00 | +3.31% |
+| mid | geometry | 86.0339 | 66.0239 | 30.00 | 1.0000 | 238.00 | +3.91% |
+| mid | prob_stat | 80.3585 | 60.3505 | 30.00 | 1.0000 | 237.00 | +7.56% |
+| high | calculus | 94.7075 | 74.6855 | 30.00 | 1.0000 | 237.00 | +1.51% |
+| high | geometry | 94.0222 | 74.0302 | 30.00 | 1.0000 | 238.00 | +1.85% |
+| high | prob_stat | 91.1204 | 71.1204 | 30.00 | 1.0000 | 237.00 | +4.10% |
+
+### 2. DQN
+
+#### 2.1. Mixed-Episode Evaluation
+
+| Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| low | TBD | TBD | TBD | TBD | TBD |
+| mid | TBD | TBD | TBD | TBD | TBD |
+| high | TBD | TBD | TBD | TBD | TBD |
+
+#### 2.2. Per-Subject Evaluation
+
+| Level | Subject | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps | Mean Score Change Rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| low | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
+| low | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
+| low | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
+| mid | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
+| mid | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
+| mid | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
+| high | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
+| high | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
+| high | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
+
+## Acknowledgement
+
+This project was conducted as part of the Sungkyunkwan University course `AAI2024 - Introduction to Reinforcement Learning`.
+We would like to acknowledge [Jaekwang KIM](https://scholar.google.com/citations?hl=ko&user=zyjtJZwAAAAJ), Associate Professor at Sungkyunkwan University, for the course and academic guidance that supported this work.

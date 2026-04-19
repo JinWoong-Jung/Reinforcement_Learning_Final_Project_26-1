@@ -282,11 +282,11 @@ class TestAllSubjectiveProblems(unittest.TestCase):
             )
 
     def test_all_subjective_floor_at_t0(self):
-        """At t=0, subjective answer_confidence must be >= subjective floor (0.02)."""
+        """At t=0, subjective answer_confidence must be >= subjective floor (0.0)."""
         env = self._all_subjective_env()
         env.reset(seed=0)
         for progress in env.state.progress:
-            self.assertGreaterEqual(progress.answer_confidence, 0.02 - 1e-9)
+            self.assertGreaterEqual(progress.answer_confidence, 0.0 - 1e-9)
 
 
 class TestAllIdenticalProblems(unittest.TestCase):

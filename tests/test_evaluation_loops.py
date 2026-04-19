@@ -130,7 +130,7 @@ class EvaluationLoopTests(unittest.TestCase):
         progress = ProblemProgress()
         progress.initialize_for_problem(problem)
         self.assertEqual(progress.choice_confidences, [])
-        self.assertAlmostEqual(progress.answer_confidence, 0.02)
+        self.assertAlmostEqual(progress.answer_confidence, 0.0)
 
     def test_observation_exposes_type_aware_confidence_slots(self):
         cfg = _test_config()
@@ -290,7 +290,7 @@ class EvaluationLoopTests(unittest.TestCase):
             current_problem_idx=0,
             progress=[
                 ProblemProgress(status=ProblemStatus.IN_PROGRESS, answer_confidence=0.30),
-                ProblemProgress(status=ProblemStatus.NOT_VISITED, answer_confidence=0.02),
+                ProblemProgress(status=ProblemStatus.NOT_VISITED, answer_confidence=0.0),
             ],
             total_score=1.2,
             visit_order=[0],
@@ -300,7 +300,7 @@ class EvaluationLoopTests(unittest.TestCase):
             current_problem_idx=1,
             progress=[
                 ProblemProgress(status=ProblemStatus.MOVED_ON, answer_confidence=0.30),
-                ProblemProgress(status=ProblemStatus.IN_PROGRESS, answer_confidence=0.02),
+                ProblemProgress(status=ProblemStatus.IN_PROGRESS, answer_confidence=0.0),
             ],
             total_score=1.2,
             visit_order=[0, 1],
@@ -368,7 +368,7 @@ class EvaluationLoopTests(unittest.TestCase):
                 progress.choice_confidences = []
             elif idx == unworked_idx:
                 progress.time_spent_sec = 0.0
-                progress.answer_confidence = 0.02
+                progress.answer_confidence = 0.0
                 progress.choice_confidences = []
             else:
                 progress.time_spent_sec = 30.0

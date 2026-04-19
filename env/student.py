@@ -11,20 +11,34 @@ import numpy as np
 @dataclass(frozen=True)
 class StudentProfile:
     student_id: str
-    skill_global: float
-    skill_speed: float
-    skill_accuracy: float
-    stress_tolerance: float = 0.5
+    theta: float
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "StudentProfile":
+        theta = raw.get("theta")
+        if theta is None:
+            theta = legacy_theta_from_skills(raw)
         return cls(
             student_id=str(raw.get("student_id", "unknown")),
-            skill_global=float(raw["skill_global"]),
-            skill_speed=float(raw["skill_speed"]),
-            skill_accuracy=float(raw["skill_accuracy"]),
-            stress_tolerance=float(raw.get("stress_tolerance", 0.5)),
+            theta=float(theta),
         )
+
+
+def legacy_theta_from_skills(raw: dict[str, Any]) -> float:
+    """Backward-compatible conversion for older skill-based student JSON."""
+    required = ("skill_global", "skill_speed", "skill_accuracy")
+    if not all(key in raw for key in required):
+        raise KeyError("Student profile must include 'theta' or all legacy skill fields.")
+
+    skill_global = float(raw["skill_global"])
+    skill_speed = float(raw["skill_speed"])
+    skill_accuracy = float(raw["skill_accuracy"])
+    ability = (
+        0.45 * skill_global
+        + 0.30 * skill_accuracy
+        + 0.25 * skill_speed
+    )
+    return float(3.0 * (ability - 0.5))
 
 
 def load_student_profiles(path: str) -> list[StudentProfile]:
@@ -71,14 +85,14 @@ def create_level_profile(
         raise ValueError("level must be one of: low, mid, high")
 
     noise = preset_data.get("noise", {})
-    skill_std = float(noise.get("skill_std", 0.03))
-    base = {k: float(v) for k, v in levels[level_key].items()}
-    noisy = {k: float(np.clip(v + rng.normal(0, skill_std), 0.05, 0.99)) for k, v in base.items()}
+    base = dict(levels[level_key])
+    if "theta" in base:
+        theta_std = float(noise.get("theta_std", noise.get("skill_std", 0.03)))
+        theta = float(np.clip(float(base["theta"]) + rng.normal(0, theta_std), -8.0, 8.0))
+    else:
+        theta = legacy_theta_from_skills(base)
 
     return StudentProfile(
         student_id=f"{level_key}_sample",
-        skill_global=noisy["skill_global"],
-        skill_speed=noisy["skill_speed"],
-        skill_accuracy=noisy["skill_accuracy"],
-        stress_tolerance=noisy["stress_tolerance"],
+        theta=theta,
     )
