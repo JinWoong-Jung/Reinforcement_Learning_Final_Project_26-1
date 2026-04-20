@@ -36,7 +36,6 @@ if PROJECT_ROOT not in sys.path:
 
 import numpy as np
 
-from agents.dpo_model import DPOPolicyModel
 from agents.heuristic_agents import HEURISTIC_POLICIES
 from analysis.evaluator import evaluate_policy
 from agents.train_rl import _build_env
@@ -53,7 +52,6 @@ def _find_rl_models(runs_dir: str) -> list[dict]:
 
     Looks for patterns:
         <runs_dir>/**/checkpoints/*_final.zip
-        <runs_dir>/**/checkpoints/*_final.pt
 
     Returns a list of dicts with keys: path, algorithm, run_name, obs_stats_path.
     """
@@ -68,15 +66,11 @@ def _find_rl_models(runs_dir: str) -> list[dict]:
             dirs.clear()
             continue
         for fname in files:
-            if not (fname.endswith("_final.zip") or fname.endswith("_final.pt")):
+            if not fname.endswith("_final.zip"):
                 continue
             file_path = os.path.join(root, fname)
-            if fname.endswith(".zip"):
-                model_path = file_path[:-4]  # strip .zip — SB3 loads without extension
-                stem = fname[:-4]
-            else:
-                model_path = file_path
-                stem = fname[:-3]
+            model_path = file_path[:-4]  # strip .zip — SB3 loads without extension
+            stem = fname[:-4]
             algo = stem.split("_")[0].lower()  # "ppo" or "dqn"
             run_name = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
             # Look for obs normalisation stats next to the model checkpoint.
@@ -93,8 +87,6 @@ def _find_rl_models(runs_dir: str) -> list[dict]:
 def _load_rl_model(model_path: str, algorithm: str, config: dict):
     """Load a trained model from disk."""
     try:
-        if algorithm == "dpo":
-            return DPOPolicyModel.load(model_path)
         install_numpy_pickle_compat()
         is_dqn = algorithm == "dqn"
         seed = int(config.get("experiment", {}).get("seed", 42))

@@ -10,6 +10,6 @@ runs/
 .pytest_cache/
 
 # Local-only docs / agent metadata
-.agents/
+/.agents/
 AGENTS.md
 final_project_requires.md

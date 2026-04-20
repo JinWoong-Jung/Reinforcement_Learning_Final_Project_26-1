@@ -1,5 +1,4 @@
-# Phase B training config: low-theta student policy
-# Based on configs/phaseB/base.yaml with student.fixed_id = "low".
+# PPO training config: low-theta student policy
 
 experiment:
   name: "train_low"

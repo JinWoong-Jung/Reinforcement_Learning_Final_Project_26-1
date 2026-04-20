@@ -1,5 +1,4 @@
-# Phase B training config: mid-theta student policy
-# Based on configs/phaseB/base.yaml with student.fixed_id = "mid".
+# PPO training config: mid-theta student policy
 
 experiment:
   name: "train_mid"

@@ -1,5 +1,4 @@
-# Phase B training config: high-theta student policy
-# Based on configs/phaseB/base.yaml with student.fixed_id = "high".
+# PPO training config: high-theta student policy
 
 experiment:
   name: "train_high"
@@ -57,7 +56,6 @@ reward:
       easy: {low_conf_threshold: 0.0, low_conf_penalty: 0.0, ready_threshold: 1.1, ready_bonus: 0.0}
       mid:  {low_conf_threshold: 0.0, low_conf_penalty: 0.0, ready_threshold: 1.1, ready_bonus: 0.0}
       hard: {defer_threshold: 0.0,    defer_bonus: 0.0,      ready_threshold: 1.1, ready_bonus: 0.0}
-
   solve_more:
     penalty: 0.0
     low_marginal_gain: {subjective_threshold: 0.0, objective_threshold: 0.0, penalty: 0.0}
@@ -65,7 +63,6 @@ reward:
       subjective: {threshold: 1.1, penalty: 0.0}
       objective:  {threshold: 1.1, penalty: 0.0}
     streak: {threshold: 9999, penalty: 0.0, extra_penalty_scale: 0.0, max_extra_steps: 0}
-
   terminal:
     timeout_penalty: 0.0
     completion_bonus: 0.5

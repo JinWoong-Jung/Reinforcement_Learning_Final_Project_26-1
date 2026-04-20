@@ -15,8 +15,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from agents.dpo_model import DPOPolicyModel
-from agents.heuristic_agents import heuristic_action
 from env.exam_env import ExamStrategyEnv
 from env.state import solved_criteria_from_config
 from utils.io import load_config
@@ -46,10 +44,8 @@ except ImportError:  # pragma: no cover
 
 try:
     import torch
-    import torch.nn.functional as F
 except ImportError:  # pragma: no cover
     torch = None
-    F = None
 
 try:
     from tqdm.auto import tqdm
@@ -286,11 +282,6 @@ def _assert_sb3_available() -> None:
         )
 
 
-def _assert_torch_available() -> None:
-    if torch is None or F is None:
-        raise ImportError("PyTorch is required for this training mode.")
-
-
 def _select_torch_device() -> str:
     return _select_torch_device_from_value("auto")
 
@@ -320,67 +311,6 @@ def _select_torch_device_from_value(device_pref: str) -> str:
     if mps_backend is not None and mps_backend.is_available():
         return "mps"
     return "cpu"
-
-
-def _dpo_action_dim(num_problems: int) -> int:
-    return int(num_problems) + 1
-
-
-def _encode_dpo_action(env: ExamStrategyEnv, action: np.ndarray | list[int] | tuple[int, int]) -> int:
-    action_arr = np.asarray(action, dtype=np.int64).reshape(-1)
-    action_type = int(action_arr[0])
-    target_idx = int(action_arr[1]) if action_arr.size > 1 else 0
-    if action_type == 0:
-        return 0
-    return 1 + max(0, min(target_idx, env.num_problems - 1))
-
-
-def _decode_dpo_action(action_idx: int, num_problems: int) -> np.ndarray:
-    if int(action_idx) <= 0:
-        return np.array([0, 0], dtype=np.int64)
-    target_idx = max(0, min(int(action_idx) - 1, num_problems - 1))
-    return np.array([1, target_idx], dtype=np.int64)
-
-
-def _sample_dpo_rejected_action(env: ExamStrategyEnv, chosen_idx: int) -> int:
-    action_dim = _dpo_action_dim(env.num_problems)
-    candidates = [idx for idx in range(action_dim) if idx != int(chosen_idx)]
-    if not candidates:
-        return int(chosen_idx)
-    return int(env.rng.choice(candidates))
-
-
-def _collect_dpo_preferences(
-    config: dict[str, Any],
-    teacher_policy: str,
-    dataset_episodes: int,
-    base_seed: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    records_obs: list[np.ndarray] = []
-    chosen_actions: list[int] = []
-    rejected_actions: list[int] = []
-
-    for ep in range(max(int(dataset_episodes), 1)):
-        env = ExamStrategyEnv(config=config, random_seed=base_seed + ep)
-        obs, _ = env.reset(seed=base_seed + ep)
-        done = False
-        truncated = False
-        while not (done or truncated):
-            records_obs.append(np.asarray(obs, dtype=np.float32).copy())
-            chosen_action = heuristic_action(env, teacher_policy)
-            chosen_idx = _encode_dpo_action(env, chosen_action)
-            rejected_idx = _sample_dpo_rejected_action(env, chosen_idx)
-            chosen_actions.append(chosen_idx)
-            rejected_actions.append(rejected_idx)
-            obs, _, done, truncated, _ = env.step(chosen_action)
-
-    if not records_obs:
-        raise RuntimeError("Failed to collect any DPO preference samples.")
-
-    obs_arr = np.asarray(records_obs, dtype=np.float32)
-    chosen_arr = np.asarray(chosen_actions, dtype=np.int64)
-    rejected_arr = np.asarray(rejected_actions, dtype=np.int64)
-    return obs_arr, chosen_arr, rejected_arr
 
 
 class ScoreLogCallback(BaseCallback if BaseCallback is not None else object):
@@ -706,6 +636,7 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
     total_steps = int(train_cfg.get("total_steps", 500000))
     print(f"[train_dqn] device={device} total_steps={total_steps} eval_episodes={int(train_cfg.get('eval_episodes', 100))}")
     print(f"[train_dqn] output_dir={paths['base']}")
+    net_arch = dqn_cfg.get("net_arch", [64, 64])
 
     model = DQN(
         policy="MlpPolicy",
@@ -720,6 +651,7 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
         exploration_initial_eps=float(dqn_cfg.get("exploration_initial_eps", 1.0)),
         exploration_final_eps=float(dqn_cfg.get("exploration_final_eps", 0.05)),
         exploration_fraction=float(dqn_cfg.get("exploration_fraction", 0.2)),
+        policy_kwargs=dict(net_arch=list(net_arch)),
         device=device,
         seed=base_seed,
         tensorboard_log=paths["log"],
@@ -755,143 +687,6 @@ def train_dqn(config: dict[str, Any], output_root: str = "runs", run_name: str |
 
     return {"paths": paths, "final_model_path": final_model_path, "eval": metrics}
 
-
-def train_dpo(config: dict[str, Any], output_root: str = "runs", run_name: str | None = None):
-    _assert_torch_available()
-    run_name = run_name or f"dpo_{_timestamp()}"
-    paths = _ensure_dirs(os.path.join(output_root, run_name))
-
-    base_seed = int(config.get("experiment", {}).get("seed", 42))
-    train_cfg = dict(config.get("training", {}) or {})
-    dpo_cfg = dict(config.get("dpo", {}) or {})
-    device = _select_torch_device_from_value(str(train_cfg.get("device", "auto")))
-    teacher_policy = str(dpo_cfg.get("teacher_policy", "marginal_gain_greedy"))
-    dataset_episodes = int(dpo_cfg.get("dataset_episodes", 200))
-    epochs = int(dpo_cfg.get("epochs", 10))
-    batch_size = int(dpo_cfg.get("batch_size", 256))
-    beta = float(dpo_cfg.get("beta", 0.1))
-    learning_rate = float(dpo_cfg.get("learning_rate", 1e-4))
-    hidden_sizes = list(dpo_cfg.get("net_arch", [256, 256]))
-
-    print(
-        f"[train_dpo] device={device} dataset_episodes={dataset_episodes} "
-        f"epochs={epochs} batch_size={batch_size} teacher={teacher_policy}"
-    )
-    print(f"[train_dpo] output_dir={paths['base']}")
-
-    obs_arr, chosen_arr, rejected_arr = _collect_dpo_preferences(
-        config=config,
-        teacher_policy=teacher_policy,
-        dataset_episodes=dataset_episodes,
-        base_seed=base_seed,
-    )
-    obs_mean = obs_arr.mean(axis=0).astype(np.float32)
-    obs_std = np.maximum(obs_arr.std(axis=0).astype(np.float32), 1e-6)
-    obs_norm = ((obs_arr - obs_mean) / obs_std).astype(np.float32)
-
-    obs_t = torch.as_tensor(obs_norm, dtype=torch.float32, device=device)
-    chosen_t = torch.as_tensor(chosen_arr, dtype=torch.long, device=device)
-    rejected_t = torch.as_tensor(rejected_arr, dtype=torch.long, device=device)
-
-    model = DPOPolicyModel(
-        obs_dim=obs_t.shape[1],
-        num_problems=int(config.get("exam", {}).get("num_problems", 30)),
-        hidden_sizes=hidden_sizes,
-        obs_mean=obs_mean,
-        obs_std=obs_std,
-        device=device,
-    )
-    model.policy.train()
-    reference_model = DPOPolicyModel(
-        obs_dim=obs_t.shape[1],
-        num_problems=model.metadata.num_problems,
-        hidden_sizes=hidden_sizes,
-        obs_mean=obs_mean,
-        obs_std=obs_std,
-        state_dict=copy.deepcopy(model.policy.state_dict()),
-        device=device,
-    )
-    reference_model.policy.eval()
-
-    optimizer = torch.optim.Adam(model.policy.parameters(), lr=learning_rate)
-    total_samples = int(obs_t.shape[0])
-    indices = np.arange(total_samples)
-
-    if tqdm is not None:
-        pbar = tqdm(total=epochs, desc="dpo", unit="epoch", dynamic_ncols=True)
-    else:
-        pbar = None
-
-    for epoch in range(epochs):
-        np.random.default_rng(base_seed + epoch).shuffle(indices)
-        epoch_losses: list[float] = []
-        for start in range(0, total_samples, batch_size):
-            batch_idx = indices[start:start + batch_size]
-            b_obs = obs_t[batch_idx]
-            b_chosen = chosen_t[batch_idx]
-            b_rejected = rejected_t[batch_idx]
-
-            logits = model.policy(b_obs)
-            log_probs = F.log_softmax(logits, dim=-1)
-            chosen_logp = log_probs.gather(1, b_chosen.unsqueeze(1)).squeeze(1)
-            rejected_logp = log_probs.gather(1, b_rejected.unsqueeze(1)).squeeze(1)
-
-            with torch.no_grad():
-                ref_logits = reference_model.policy(b_obs)
-                ref_log_probs = F.log_softmax(ref_logits, dim=-1)
-                ref_chosen_logp = ref_log_probs.gather(1, b_chosen.unsqueeze(1)).squeeze(1)
-                ref_rejected_logp = ref_log_probs.gather(1, b_rejected.unsqueeze(1)).squeeze(1)
-
-            margin = (chosen_logp - rejected_logp) - (ref_chosen_logp - ref_rejected_logp)
-            loss = -F.logsigmoid(beta * margin).mean()
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_losses.append(float(loss.item()))
-
-        if pbar is not None:
-            pbar.update(1)
-            pbar.set_postfix({"loss": f"{float(np.mean(epoch_losses)):.4f}"}, refresh=False)
-        else:
-            print(f"[train_dpo] epoch={epoch + 1}/{epochs} loss={float(np.mean(epoch_losses)):.4f}")
-
-    if pbar is not None:
-        pbar.close()
-
-    model.policy.eval()
-    final_model_path = os.path.join(paths["model"], "dpo_final.pt")
-    model.save(final_model_path)
-    print(f"[train_dpo] final_model={final_model_path}")
-
-    metrics = evaluate_trained_model(
-        model=model,
-        config=config,
-        n_episodes=int(train_cfg.get("eval_episodes", 100)),
-        algorithm="dpo",
-        seed=base_seed,
-    )
-
-    with open(os.path.join(paths["base"], "config_snapshot.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
-    with open(os.path.join(paths["eval"], "dpo_eval.json"), "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
-    dataset_meta = {
-        "teacher_policy": teacher_policy,
-        "dataset_episodes": dataset_episodes,
-        "num_preferences": int(total_samples),
-        "epochs": epochs,
-        "batch_size": batch_size,
-        "beta": beta,
-        "learning_rate": learning_rate,
-    }
-    with open(os.path.join(paths["eval"], "dpo_dataset.json"), "w", encoding="utf-8") as f:
-        json.dump(dataset_meta, f, indent=2)
-    print(f"[train_dpo] eval_mean_score={metrics['mean_score']:.4f} eval_mean_reward={metrics['mean_reward']:.4f}")
-
-    return {"paths": paths, "final_model_path": final_model_path, "eval": metrics}
-
-
 def train_from_config(
     config: dict[str, Any],
     output_root: str = "runs",
@@ -902,9 +697,7 @@ def train_from_config(
         return train_ppo(config, output_root=output_root, run_name=run_name)
     if algo == "dqn":
         return train_dqn(config, output_root=output_root, run_name=run_name)
-    if algo == "dpo":
-        return train_dpo(config, output_root=output_root, run_name=run_name)
-    raise ValueError("training.algorithm must be one of: 'ppo', 'dqn', 'dpo'.")
+    raise ValueError("training.algorithm must be one of: 'ppo', 'dqn'.")
 
 
 def train_multi_seed(

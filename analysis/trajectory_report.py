@@ -12,7 +12,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from agents.dpo_model import DPOPolicyModel
 from agents.heuristic_agents import heuristic_action
 from agents.train_rl import _build_env, _load_obs_normalizer
 from env.exam_env import ExamStrategyEnv
@@ -29,8 +28,6 @@ except ImportError:  # pragma: no cover
 
 def _load_model(model_path: str, algorithm: str, config: dict[str, Any]):
     algo = algorithm.lower()
-    if algo == "dpo":
-        return DPOPolicyModel.load(model_path)
     install_numpy_pickle_compat()
     env = _build_env(config=config, for_dqn=algo == "dqn", seed=int(config.get("experiment", {}).get("seed", 42)))
     custom_objects = build_sb3_custom_objects(config, algo, env)
@@ -42,7 +39,7 @@ def _load_model(model_path: str, algorithm: str, config: dict[str, Any]):
         if DQN is None:
             raise ImportError("stable-baselines3 is required to load DQN models.")
         return DQN.load(model_path, env=env, custom_objects=custom_objects)
-    raise ValueError("algorithm must be 'ppo', 'dqn', or 'dpo'")
+    raise ValueError("algorithm must be 'ppo' or 'dqn'")
 
 
 def _resolve_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -331,7 +328,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=str, default=None, help="Run directory containing config_snapshot.yaml")
     parser.add_argument("--config", type=str, default=None, help="Config path if no run dir is provided")
     parser.add_argument("--model-path", type=str, default=None, help="Path to PPO/DQN model zip")
-    parser.add_argument("--algorithm", type=str, choices=["ppo", "dqn", "dpo"], default="ppo")
+    parser.add_argument("--algorithm", type=str, choices=["ppo", "dqn"], default="ppo")
     parser.add_argument("--policy-name", type=str, default=None, help="Heuristic policy name")
     parser.add_argument("--exam-data", type=str, default=None)
     parser.add_argument("--student-data", type=str, default=None)
