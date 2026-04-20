@@ -245,23 +245,23 @@ python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output res
 
 | Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| low | TBD | TBD | TBD | TBD | TBD |
-| mid | TBD | TBD | TBD | TBD | TBD |
-| high | TBD | TBD | TBD | TBD | TBD |
+| low | 67.5416 | 47.2671 | 28.56 | 1.0000 | 250.68 |
+| mid | 83.4537 | 63.3358 | 30.00 | 1.0000 | 240.92 |
+| high | 93.0767 | 73.0375 | 30.00 | 1.0000 | 237.00 |
 
 #### 2.2. Per-Subject Evaluation
 
 | Level | Subject | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps | Mean Score Change Rate |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| low | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
-| low | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
-| low | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
-| mid | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
-| mid | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
-| mid | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
-| high | calculus | TBD | TBD | TBD | TBD | TBD | TBD |
-| high | geometry | TBD | TBD | TBD | TBD | TBD | TBD |
-| high | prob_stat | TBD | TBD | TBD | TBD | TBD | TBD |
+| low | calculus | 72.5327 | 52.3507 | 30.00 | 1.0000 | 249.00 | +4.21% |
+| low | geometry | 68.8977 | 48.4077 | 28.00 | 1.0000 | 258.00 | +3.00% |
+| low | prob_stat | 61.4793 | 41.3933 | 28.00 | 1.0000 | 243.00 | +7.99% |
+| mid | calculus | 86.6328 | 66.6228 | 30.00 | 1.0000 | 231.00 | +2.29% |
+| mid | geometry | 84.7450 | 64.5070 | 30.00 | 1.0000 | 247.00 | +2.35% |
+| mid | prob_stat | 79.0578 | 58.9958 | 30.00 | 1.0000 | 242.00 | +5.82% |
+| high | calculus | 94.5161 | 74.4481 | 30.00 | 1.0000 | 237.00 | +1.30% |
+| high | geometry | 94.0604 | 74.0324 | 30.00 | 1.0000 | 237.00 | +1.90% |
+| high | prob_stat | 90.5876 | 70.5596 | 30.00 | 1.0000 | 237.00 | +3.49% |
 
 ## Acknowledgement
 
