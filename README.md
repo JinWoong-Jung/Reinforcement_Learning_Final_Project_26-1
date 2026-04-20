@@ -2,7 +2,7 @@
 
 <p align="center">
   <p align="center">
-    <a>Jinwoong Jung</a>&emsp;
+    <a href="https://github.com/JinWoong-Jung" target='_blank'>Jinwoong Jung</a>&emsp;
     <a>Yuji Lim</a>&emsp;
     <a>Sangyun Lee</a>&emsp;
     <a>Jungwoo Choi</a>
@@ -172,28 +172,48 @@ Use the placeholders below:
 
 ### Train
 
+Direct command:
+
 ```bash
-python main.py --mode train --config configs/<algo>/train_<level>.yaml --output runs/<algo>/train_<level>
+python main.py --mode train --config configs/<algo>/train_<level>.yaml --output runs/<algo>/train__<level>
+```
+
+Shell script:
+
+```bash
+bash scripts/train.sh <algo> <level>
 ```
 
 ### Evaluate
 
+Direct command:
+
 ```bash
 python main.py --mode eval \
-  --config runs/<algo>/train_<level>/<RUN_NAME>/config_snapshot.yaml \
-  --model-path runs/<algo>/train_<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --config runs/<algo>/train__<level>/<RUN_NAME>/config_snapshot.yaml \
+  --model-path runs/<algo>/train__<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
   --algorithm <algo> \
   --exam-data <exam_json> \
   --episodes 100 \
   --output results/<algo>/<level>/<subject>
 ```
 
+Shell script:
+
+```bash
+bash scripts/eval.sh <algo> <level>
+```
+
+This script automatically finds the most recent run under `runs/<algo>/train__<level>/` and evaluates all three subjects: `calculus`, `geometry`, and `prob_stat`.
+
 ### Generate a Trajectory Report
+
+Direct command:
 
 ```bash
 python analysis/trajectory_report.py \
-  --run-dir runs/<algo>/train_<level>/<RUN_NAME> \
-  --model-path runs/<algo>/train_<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --run-dir runs/<algo>/train__<level>/<RUN_NAME> \
+  --model-path runs/<algo>/train__<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
   --algorithm <algo> \
   --exam-data <exam_json> \
   --episodes 10 \
@@ -201,11 +221,14 @@ python analysis/trajectory_report.py \
   --output results/<algo>/<level>/<subject>_trajectory.json
 ```
 
-### Evaluate Heuristic Baselines
+Shell script:
 
 ```bash
-python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output results/heuristic
+bash scripts/traj.sh <algo> <level>
 ```
+
+This script automatically finds the most recent run under `runs/<algo>/train__<level>/` and generates trajectory reports for all three subjects: `calculus`, `geometry`, and `prob_stat`.
+
 
 ### Training Curve Snapshots
 
