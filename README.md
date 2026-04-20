@@ -11,9 +11,10 @@
   </p>
   <p align="center">
     <i>Sungkyunkwan University</i><br>
-    <i>AAI2024 - Introduction to Reinforcement Learning</i>
   </p>
 </p>
+
+![Baseline vs PPO vs DQN](assets/baseline_vs_ppo_vs_dqn.png)
 
 ## ✨ Project Overview
 
@@ -204,6 +205,20 @@ python analysis/trajectory_report.py \
 ```bash
 python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output results/heuristic
 ```
+
+### Training Curve Snapshots
+
+#### Low Student
+
+![Low PPO vs DQN Training Curve](Images/low_ppo_vs_dqn_mean_score.png)
+
+#### Mid Student
+
+![Mid PPO vs DQN Training Curve](Images/mid_ppo_vs_dqn_mean_score.png)
+
+#### High Student
+
+![High PPO vs DQN Training Curve](Images/high_ppo_vs_dqn_mean_score.png)
 
 ## 📋 Results
 
