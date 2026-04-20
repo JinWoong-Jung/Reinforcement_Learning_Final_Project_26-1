@@ -2,5 +2,7 @@ numpy
 PyYAML
 gymnasium
 stable-baselines3
+torch
 matplotlib
 tensorboard
+tqdm
