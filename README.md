@@ -38,7 +38,7 @@ The environment models confidence growth over time for each problem and converts
 ### Clone
 
 ```bash
-git clone <REPOSITORY_URL>
+git clone https://github.com/JinWoong-Jung/Reinforcement_Learning_Final_Project_26-1.git
 cd RLProject
 ```
 
@@ -146,7 +146,7 @@ Key entrypoints:
 
 The main exam data in this repository is based on the Korean CSAT mathematics exam administered on `2025.11.13`.
 
-The dataset construction was prepared with reference to materials provided by [MegaStudy](https://www.megastudy.net/megastudy.asp)
+The dataset construction was prepared with reference to materials provided by [MegaStudy](https://www.megastudy.net/Entinfo/correctRate/main.asp?SubMainType=I&mOne=ipsi&mTwo=588)
 
 Exam JSON fields: `exam_id`, `subject`, `total_time_sec`, `problems`
 
@@ -225,7 +225,7 @@ python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output res
 
 ### 0. Analytic Baseline
 
-| Ability ($\theta$) | Statics | Calculus | Geographic |
+| Ability ($\theta$) | prob_stat | calculus | geometry |
 | --- | ---: | ---: | ---: |
 | low ($\theta=1.0$) | 56.93 | 69.62 | 66.89 |
 | mid ($\theta=2.0$) | 74.71 | 84.69 | 82.80 |
@@ -278,6 +278,15 @@ python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output res
 | high | calculus | 94.5161 | 74.4481 | 30.00 | 1.0000 | 237.00 | +1.30% |
 | high | geometry | 94.0604 | 74.0324 | 30.00 | 1.0000 | 237.00 | +1.90% |
 | high | prob_stat | 90.5876 | 70.5596 | 30.00 | 1.0000 | 237.00 | +3.49% |
+
+## Team Contributions
+
+Please replace the placeholders below with the final contribution details for each member.
+
+- `Jinwoong Jung`: [fill in contribution details]
+- `Yuji Lim`: [fill in contribution details]
+- `Sangyun Lee`: [fill in contribution details]
+- `Jungwoo Choi`: [fill in contribution details]
 
 ## Acknowledgement
 
