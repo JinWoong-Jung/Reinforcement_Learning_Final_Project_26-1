@@ -211,15 +211,15 @@ python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output res
 
 #### Low Student
 
-![Low PPO vs DQN Training Curve](assets/low_ppo_vs_dqn_mean_score.png)
+<img src="assets/low_ppo_vs_dqn_mean_score.png" alt="Low PPO vs DQN Training Curve" width="600">
 
 #### Mid Student
 
-![Mid PPO vs DQN Training Curve](assets/mid_ppo_vs_dqn_mean_score.png)
+<img src="assets/mid_ppo_vs_dqn_mean_score.png" alt="Mid PPO vs DQN Training Curve" width="600">
 
 #### High Student
 
-![High PPO vs DQN Training Curve](assets/high_ppo_vs_dqn_mean_score.png)
+<img src="assets/high_ppo_vs_dqn_mean_score.png" alt="High PPO vs DQN Training Curve" width="600">
 
 ## 📋 Results
 
