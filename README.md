@@ -1,5 +1,6 @@
+# Optimal Time Allocation in Time-Limited Tests via Reinforcement Learning
+
 <p align="center">
-  <h1 align="center">Optimal Time Allocation in Time-Limited Tests via Reinforcement Learning</h1>
   <p align="center">
     <a>Jinwoong Jung</a>
     ·
@@ -14,7 +15,7 @@
   </p>
 </p>
 
-![Baseline vs PPO vs DQN](assets/baseline_vs_ppo_vs_dqn.png)
+![Mid Student: Baseline vs PPO vs DQN](<assets/baseline_vs_ppo_vs_dqn(mid).png>)
 
 ## ✨ Project Overview
 
@@ -27,8 +28,8 @@ Instead of generating answers directly, the agent learns a policy that decides:
 
 The current RL algorithms used in this repository are:
 
-- `PPO`
-- `DQN`
+- `PPO` ([Proximal Policy Optimization Algorithms](https://arxiv.org/pdf/1707.06347))
+- `DQN` ([Playing Atari with Deep Reinforcement Learning](https://arxiv.org/pdf/1312.5602))
 
 The environment models confidence growth over time for each problem and converts it into expected score.
 
@@ -210,15 +211,15 @@ python main.py --mode heuristic --config configs/ppo/train_mid.yaml --output res
 
 #### Low Student
 
-![Low PPO vs DQN Training Curve](Images/low_ppo_vs_dqn_mean_score.png)
+![Low PPO vs DQN Training Curve](assets/low_ppo_vs_dqn_mean_score.png)
 
 #### Mid Student
 
-![Mid PPO vs DQN Training Curve](Images/mid_ppo_vs_dqn_mean_score.png)
+![Mid PPO vs DQN Training Curve](assets/mid_ppo_vs_dqn_mean_score.png)
 
 #### High Student
 
-![High PPO vs DQN Training Curve](Images/high_ppo_vs_dqn_mean_score.png)
+![High PPO vs DQN Training Curve](assets/high_ppo_vs_dqn_mean_score.png)
 
 ## 📋 Results
 
