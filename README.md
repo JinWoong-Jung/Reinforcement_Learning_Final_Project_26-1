@@ -2,16 +2,16 @@
 
 <p align="center">
   <p align="center">
-    <a>Jinwoong Jung</a>
-    ·
-    <a>Yuji Lim</a>
-    ·
-    <a>Sangyun Lee</a>
-    ·
+    <a>Jinwoong Jung</a>&emsp;
+    <a>Yuji Lim</a>&emsp;
+    <a>Sangyun Lee</a>&emsp;
     <a>Jungwoo Choi</a>
   </p>
   <p align="center">
     <i>Sungkyunkwan University</i><br>
+  </p>
+   <p align="center">
+    <i>2026 Introduction to Reinforcement Learning(AAI2024_01) Final Project</i><br>
   </p>
 </p>
 
