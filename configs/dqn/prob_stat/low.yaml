@@ -1,0 +1,86 @@
+# Problem statistics time-allocation config: low-student DQN policy
+# Env type: TimeAllocationEnv — agent allocates 30-sec tokens across problems.
+# No ordering, no revisit, no first-pass constraints.
+
+experiment:
+  name: "prob_stat_time_allocation"
+  seed: 42
+
+exam:
+  total_time_sec: 6000
+  num_problems: 30
+  action_time_unit_sec: 30
+  switch_time_sec: 10
+  reserve_switch_time: false
+  shuffle_problem_order_on_reset: true
+
+student:
+  fixed_id: "low"
+
+dynamics:
+  anchor_source: "difficulty"
+  subjective_floor: 0.0
+  ambiguity_weight: 1.7
+  beta: 2.9
+  alpha: 1.6
+  tau: 200.0
+
+reward:
+  solve_more:
+    penalty: 0.0
+    low_marginal_gain: {subjective_threshold: 0.0, objective_threshold: 0.0, penalty: 0.0}
+    saturation:
+      subjective: {threshold: 1.1, penalty: 0.0}
+      objective:  {threshold: 1.1, penalty: 0.0}
+    streak: {threshold: 9999, penalty: 0.0, extra_penalty_scale: 0.0, max_extra_steps: 0}
+
+  terminal:
+    timeout_penalty: 0.0
+    completion_bonus: 0.0
+    score_bonus_scale: 1.0
+    concentration:
+      top1: {threshold: 1.1, penalty_scale: 0.0}
+      top2: {threshold: 1.1, penalty_scale: 0.0}
+
+training:
+  algorithm: "dqn"
+  env_type: "time_allocation"
+  device: "cpu"
+  total_steps: 10000000
+  eval_episodes: 100
+  progress_log_freq: 100000
+  checkpoint_freq: 500000
+  score_log_freq: 100000
+  score_log_eval_episodes: 10
+  n_envs: 8
+  strategy_constraint:
+    name: null
+
+evaluation:
+  solved:
+    subjective_conf_threshold: 0.5
+    objective_conf_threshold: 0.5
+    objective_margin_threshold: 0.05
+
+dqn:
+  learning_rate: 1e-4
+  gamma: 0.995
+  buffer_size: 200000
+  learning_starts: 20000
+  batch_size: 128
+  train_freq: 4
+  target_update_interval: 4000
+  exploration_initial_eps: 1.0
+  exploration_final_eps: 0.05
+  exploration_fraction: 0.2
+  net_arch: [256, 256]
+
+data:
+  exam_paths:
+    - data/prob_stat/20250326.json
+    - data/prob_stat/20250508.json
+    - data/prob_stat/20250604.json
+    - data/prob_stat/20250710.json
+    - data/prob_stat/20250903.json
+    - data/prob_stat/20251014.json
+  student_path: data/theta_students.json

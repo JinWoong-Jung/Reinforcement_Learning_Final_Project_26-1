@@ -1008,6 +1008,21 @@ class EvaluationLoopTests(unittest.TestCase):
             "New mode: all problems must be NOT_VISITED at reset",
         )
 
+    def test_shuffle_problem_order_on_reset_is_seeded(self):
+        cfg = load_config("configs/ppo/train_mid.yaml")
+        cfg.setdefault("data", {})
+        cfg["data"]["exam_path"] = "data/25_math_calculus.json"
+        cfg["data"].pop("exam_paths", None)
+        cfg["exam"]["shuffle_problem_order_on_reset"] = True
+        env = ExamStrategyEnv(config=cfg, random_seed=7)
+        _, info_a = env.reset(seed=7)
+        _, info_b = env.reset(seed=7)
+        _, info_c = env.reset(seed=8)
+
+        self.assertEqual(info_a["problem_pids"], info_b["problem_pids"])
+        self.assertNotEqual(info_a["problem_pids"], info_c["problem_pids"])
+        self.assertEqual(sorted(info_a["problem_pids"]), sorted(info_c["problem_pids"]))
+
     def test_new_start_mode_first_action_is_select_start(self):
         cfg = _test_config()
         cfg["exam"]["allow_agent_selected_start_problem"] = True

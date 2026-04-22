@@ -20,18 +20,17 @@
 ## ✨ Project Overview
 
 This project studies how to allocate time across problems in a time-limited exam using reinforcement learning.
-Instead of generating answers directly, the agent learns a policy that decides:
+Instead of generating answers directly, the agent learns a policy that distributes a fixed exam-time budget over the problems.
 
-- whether to spend more time on the current problem,
-- when to move to another problem,
-- how to maximize expected total score under a fixed time budget.
+At each step, the current environment gives the agent one time token, such as 30 seconds, and the agent chooses which problem receives that token. After time is allocated, the problem's confidence is updated by the confidence dynamics model, and the expected score changes accordingly.
 
-The current RL algorithms used in this repository are:
+The current experiments use:
 
-- `PPO` ([Proximal Policy Optimization Algorithms](https://arxiv.org/pdf/1707.06347))
-- `DQN` ([Playing Atari with Deep Reinforcement Learning](https://arxiv.org/pdf/1312.5602))
+- `PPO` ([Proximal Policy Optimization Algorithms](https://arxiv.org/pdf/1707.06347)) as the main training algorithm
+- `TimeAllocationEnv` as the main environment
+- `low`, `mid`, and `high` student ability profiles, represented by a single ability parameter `theta`
 
-The environment models confidence growth over time for each problem and converts it into expected score.
+The goal is not to learn the order in which problems are solved. The current setup intentionally removes ordering and revisit decisions so that the learned policy can be interpreted directly as "how much time should be invested in each problem?"
 
 ## 🛠️ Installation
 
@@ -61,11 +60,13 @@ pip install -r requirements.txt
 
 ## 🧭 Problem Formulation
 
-We model test-taking as a sequential decision-making problem.
+We formulate test-taking as a time-allocation problem.
+Given a fixed exam-time budget, the agent repeatedly assigns the next time token to one of the problems.
 
-- State: remaining exam time, current problem index, per-problem progress, time spent, difficulty level, score, problem type, confidence representation
-- Action: `solve_more` or `next`
-- Objective: maximize expected total score before time runs out
+- State: remaining time and per-problem information
+- Action: select one problem to receive the next time token
+- Transition: the selected problem receives additional time, and its confidence increases according to the confidence dynamics
+- Objective: maximize expected total score within the time limit
 
 The confidence score for each problem is modeled as
 
@@ -73,7 +74,7 @@ $$
 p_i(t)=c_i+(1-c_i)\space\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
 $$
 
-where the current default settings are:
+where the main dynamics parameters are:
 
 | Symbol | Meaning | Current default / definition |
 | --- | --- | --- |
@@ -81,15 +82,18 @@ where the current default settings are:
 | $d_i$ | difficulty of problem $i$ | `difficulty` field in the dataset |
 | $a_i$ | ambiguity of problem $i$ | entropy of `choice_rate` |
 | $c_i$ | minimum probability floor | `0.2` for objective, `0.0` for subjective |
-| $\alpha$ | time gain coefficient | `1.6` |
-| $\beta$ | difficulty penalty coefficient | `2.9` |
-| $\gamma$ | ambiguity penalty coefficient | `1.7` |
-| $\tau$ | time scale | `200.0` |
+| $\alpha$ | time gain coefficient | configured by `dynamics.alpha` |
+| $\beta$ | difficulty penalty coefficient | configured by `dynamics.beta` |
+| $\gamma$ | ambiguity penalty coefficient | configured by `dynamics.ambiguity_weight` |
+| $\tau$ | time scale | configured by `dynamics.tau` |
 
-The most basic reward is defined as the change in expected utility:
+The reward at each step is the change in expected utility, with a terminal bonus proportional to the final score:
 
 $$
-r_t = U(s_{t+1}) - U(s_t)
+\begin{aligned}
+r_t =\;& U(s_{t+1}) - U(s_t) \\
+&+ \mathbb{1}[\text{terminal}] \cdot \text{score\_bonus\_scale} \cdot \frac{U(s_T)}{\sum_i \text{score}_i}
+\end{aligned}
 $$
 
 where the expected utility is defined as
@@ -97,19 +101,6 @@ where the expected utility is defined as
 $$
 U(s)=\sum_i \text{score}_i \cdot \text{confidence}_i(s)
 $$
-
-We then add a small number of shaping terms, and the final reward used for RL becomes:
-
-$$
-\begin{aligned}
-r_t = \space & \Delta U \\
-&+ \mathbb{1}[\text{next}] \cdot (-0.002) \\
-&+ \mathbb{1}[\text{no-work revisit}] \cdot (-0.02) \\
-&+ \mathbb{1}[\text{terminal}] \cdot \left(0.5 \cdot \text{coverage fraction}\right)
-\end{aligned}
-$$
-
-<sub>The reward setting can be changed through the `reward` block in the config files.</sub>
 
 Student ability is injected directly through `theta`:
 
@@ -119,7 +110,7 @@ Student ability is injected directly through `theta`:
 | mid | `2.0` |
 | high | `3.0` |
 
-That is, the current implementation does not derive ability from multiple skill weights; instead, each student profile provides `theta` directly, and that value is used in the confidence equation above.
+Each student level corresponds to one ability value, and that value is used in the confidence equation above.
 
 ## 📝 Project Structure
 
@@ -144,67 +135,74 @@ Key entrypoints:
 
 ## 🗂️ Data
 
-The main exam data in this repository is based on the Korean CSAT mathematics exam administered on `2025.11.13`.
+The dataset covers three mathematics subjects: calculus, geometry, and probability/statistics.
+For each subject, the training set consists of six mock exams, and the final evaluation is performed on one unseen CSAT exam.
 
-The dataset construction was prepared with reference to materials provided by [MegaStudy](https://www.megastudy.net/Entinfo/correctRate/main.asp?SubMainType=I&mOne=ipsi&mTwo=588)
+The dataset construction was prepared with reference to materials provided by [MegaStudy](https://www.megastudy.net/Entinfo/correctRate/main.asp?SubMainType=I&mOne=ipsi&mTwo=588).
 
-Exam JSON fields: `exam_id`, `subject`, `total_time_sec`, `problems`
-
-Problem-level fields: `pid`, `actual_answer`, `difficulty_level`, `difficulty`, `score`, `correct_rate`, `error_rate`, `problem_type`, `choice_rate`
-
-Student JSON fields: `student_id`, `theta`
-
-Examples:
-
-- `data/25_math_calculus.json`
-- `data/25_math_geometry.json`
-- `data/25_math_prob_stat.json`
+| Subject | Training exams | Zero-shot CSAT eval |
+| --- | --- | --- |
+| `calculus` | `data/calculus/*.json` | `data/25_math_calculus.json` |
+| `geometry` | `data/geometry/*.json` | `data/25_math_geometry.json` |
+| `prob_stat` | `data/prob_stat/*.json` | `data/25_math_prob_stat.json` |
 
 ## 🏋️ How to Run
 
 Use the placeholders below:
 
 - `<algo>`: `ppo` or `dqn`
-- `<level>`: `low`, `mid`, or `high`
 - `<subject>`: `calculus`, `geometry`, or `prob_stat`
-- `<exam_json>`: `data/25_math_calculus.json`, `data/25_math_geometry.json`, or `data/25_math_prob_stat.json`
-- `<RUN_NAME>`: generated run directory name such as `ppo_20260419_171103`
+- `<level>`: `low`, `mid`, or `high`
+- `<RUN_NAME>`: generated run directory name such as `ppo_20260421_161814` or `dqn_20260422_062908`
 
 ### Train
 
 Direct command:
 
 ```bash
-python main.py --mode train --config configs/<algo>/train_<level>.yaml --output runs/<algo>/train__<level>
+python main.py --mode train \
+  --config configs/<algo>/<subject>/<level>.yaml \
+  --output runs/<algo>/<subject>/<level>
 ```
 
 Shell script:
 
 ```bash
-bash scripts/train.sh <algo> <level>
+bash scripts/train.sh <algo> <subject> <level>
+```
+
+Example:
+
+```bash
+bash scripts/train.sh ppo calculus mid
+bash scripts/train.sh dqn calculus mid
 ```
 
 ### Evaluate
+
+Evaluation is zero-shot: the trained model is evaluated on the final CSAT data file for the same subject.
 
 Direct command:
 
 ```bash
 python main.py --mode eval \
-  --config runs/<algo>/train__<level>/<RUN_NAME>/config_snapshot.yaml \
-  --model-path runs/<algo>/train__<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --config runs/<algo>/<subject>/<level>/<RUN_NAME>/config_snapshot.yaml \
+  --model-path runs/<algo>/<subject>/<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
   --algorithm <algo> \
-  --exam-data <exam_json> \
+  --exam-data data/25_math_<subject>.json \
   --episodes 100 \
-  --output results/<algo>/<level>/<subject>
+  --output runs/zero_shot/<algo>/<subject>/<level>
 ```
+
+For `prob_stat`, the CSAT file is `data/25_math_prob_stat.json`.
 
 Shell script:
 
 ```bash
-bash scripts/eval.sh <algo> <level>
+bash scripts/eval.sh <algo> <subject> <level>
 ```
 
-This script automatically finds the most recent run under `runs/<algo>/train__<level>/` and evaluates all three subjects: `calculus`, `geometry`, and `prob_stat`.
+This script automatically finds the most recent run under `runs/<algo>/<subject>/<level>/` and evaluates it on the matching CSAT file.
 
 ### Generate a Trajectory Report
 
@@ -212,37 +210,23 @@ Direct command:
 
 ```bash
 python analysis/trajectory_report.py \
-  --run-dir runs/<algo>/train__<level>/<RUN_NAME> \
-  --model-path runs/<algo>/train__<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
+  --run-dir runs/<algo>/<subject>/<level>/<RUN_NAME> \
+  --model-path runs/<algo>/<subject>/<level>/<RUN_NAME>/checkpoints/<algo>_final.zip \
   --algorithm <algo> \
-  --exam-data <exam_json> \
+  --exam-data data/25_math_<subject>.json \
   --episodes 10 \
   --max-logged-steps 80 \
-  --output results/<algo>/<level>/<subject>_trajectory.json
+  --output results/<algo>/<subject>/<level>_trajectory.json
 ```
 
 Shell script:
 
 ```bash
-bash scripts/traj.sh <algo> <level>
+bash scripts/traj.sh <algo> <subject> <level>
 ```
 
-This script automatically finds the most recent run under `runs/<algo>/train__<level>/` and generates trajectory reports for all three subjects: `calculus`, `geometry`, and `prob_stat`.
+This script automatically finds the most recent run under `runs/<algo>/<subject>/<level>/` and generates a trajectory report on the matching CSAT file.
 
-
-### Training Curve Snapshots
-
-#### Low Student
-
-<img src="assets/low_ppo_vs_dqn_mean_score.png" alt="Low PPO vs DQN Training Curve" width="600">
-
-#### Mid Student
-
-<img src="assets/mid_ppo_vs_dqn_mean_score.png" alt="Mid PPO vs DQN Training Curve" width="600">
-
-#### High Student
-
-<img src="assets/high_ppo_vs_dqn_mean_score.png" alt="High PPO vs DQN Training Curve" width="600">
 
 ## 📋 Results
 
@@ -254,53 +238,39 @@ This script automatically finds the most recent run under `runs/<algo>/train__<l
 | mid ($\theta=2.0$) | 74.71 | 84.69 | 82.80 |
 | high ($\theta=3.0$) | 87.53 | 93.30 | 92.31 |
 
+`Score Change vs Baseline` in the RL result tables is computed as `(Mean Score - Analytic Baseline) / Analytic Baseline`.
+
 ### 1. PPO
 
-#### 1.1. Mixed-Episode Evaluation
+PPO models were trained on the six mock exams for each subject and evaluated zero-shot on the unseen CSAT exam.
 
-| Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| low | 69.4006 | 49.3995 | 28.44 | 1.0000 | 234.92 |
-| mid | 84.6270 | 64.6188 | 30.00 | 1.0000 | 237.40 |
-| high | 93.2855 | 73.2825 | 30.00 | 1.0000 | 237.78 |
-
-#### 1.2. Per-Subject Evaluation
-
-| Level | Subject | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps | Mean Score Change Rate |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| low | calculus | 73.7830 | 53.7810 | 29.00 | 1.0000 | 235.00 | +5.98% |
-| low | geometry | 71.2105 | 51.2125 | 30.00 | 1.0000 | 234.00 | +6.46% |
-| low | prob_stat | 63.3035 | 43.2995 | 26.00 | 1.0000 | 236.00 | +11.20% |
-| mid | calculus | 87.4956 | 67.4896 | 30.00 | 1.0000 | 237.00 | +3.31% |
-| mid | geometry | 86.0339 | 66.0239 | 30.00 | 1.0000 | 238.00 | +3.91% |
-| mid | prob_stat | 80.3585 | 60.3505 | 30.00 | 1.0000 | 237.00 | +7.56% |
-| high | calculus | 94.7075 | 74.6855 | 30.00 | 1.0000 | 237.00 | +1.51% |
-| high | geometry | 94.0222 | 74.0302 | 30.00 | 1.0000 | 238.00 | +1.85% |
-| high | prob_stat | 91.1204 | 71.1204 | 30.00 | 1.0000 | 237.00 | +4.10% |
+| Subject | Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Score Change vs Baseline |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| calculus | low | 73.9833 | 54.3231 | 26.93 | 1.0000 | +6.27% |
+| calculus | mid | 87.3845 | 67.8584 | 30.00 | 1.0000 | +3.18% |
+| calculus | high | 94.4262 | 74.9705 | 30.00 | 1.0000 | +1.21% |
+| geometry | low | 71.6399 | 51.9563 | 25.80 | 1.0000 | +7.10% |
+| geometry | mid | 85.8228 | 66.2810 | 30.00 | 1.0000 | +3.65% |
+| geometry | high | 93.7543 | 74.2918 | 30.00 | 1.0000 | +1.56% |
+| prob_stat | low | 63.5932 | 43.8291 | 24.33 | 0.9997 | +11.70% |
+| prob_stat | mid | 80.6065 | 61.0125 | 29.98 | 1.0000 | +7.89% |
+| prob_stat | high | 91.1757 | 71.6874 | 30.00 | 1.0000 | +4.17% |
 
 ### 2. DQN
 
-#### 2.1. Mixed-Episode Evaluation
+DQN is currently being trained. The final zero-shot CSAT results will be filled in using the same format.
 
-| Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| low | 67.5416 | 47.2671 | 28.56 | 1.0000 | 250.68 |
-| mid | 83.4537 | 63.3358 | 30.00 | 1.0000 | 240.92 |
-| high | 93.0767 | 73.0375 | 30.00 | 1.0000 | 237.00 |
-
-#### 2.2. Per-Subject Evaluation
-
-| Level | Subject | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Mean Steps | Mean Score Change Rate |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| low | calculus | 72.5327 | 52.3507 | 30.00 | 1.0000 | 249.00 | +4.21% |
-| low | geometry | 68.8977 | 48.4077 | 28.00 | 1.0000 | 258.00 | +3.00% |
-| low | prob_stat | 61.4793 | 41.3933 | 28.00 | 1.0000 | 243.00 | +7.99% |
-| mid | calculus | 86.6328 | 66.6228 | 30.00 | 1.0000 | 231.00 | +2.29% |
-| mid | geometry | 84.7450 | 64.5070 | 30.00 | 1.0000 | 247.00 | +2.35% |
-| mid | prob_stat | 79.0578 | 58.9958 | 30.00 | 1.0000 | 242.00 | +5.82% |
-| high | calculus | 94.5161 | 74.4481 | 30.00 | 1.0000 | 237.00 | +1.30% |
-| high | geometry | 94.0604 | 74.0324 | 30.00 | 1.0000 | 237.00 | +1.90% |
-| high | prob_stat | 90.5876 | 70.5596 | 30.00 | 1.0000 | 237.00 | +3.49% |
+| Subject | Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Score Change vs Baseline |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| calculus | low | TBD | TBD | TBD | TBD | TBD |
+| calculus | mid | TBD | TBD | TBD | TBD | TBD |
+| calculus | high | TBD | TBD | TBD | TBD | TBD |
+| geometry | low | TBD | TBD | TBD | TBD | TBD |
+| geometry | mid | TBD | TBD | TBD | TBD | TBD |
+| geometry | high | TBD | TBD | TBD | TBD | TBD |
+| prob_stat | low | TBD | TBD | TBD | TBD | TBD |
+| prob_stat | mid | TBD | TBD | TBD | TBD | TBD |
+| prob_stat | high | TBD | TBD | TBD | TBD | TBD |
 
 ## Team Contributions
 

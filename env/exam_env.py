@@ -134,6 +134,7 @@ class ExamStrategyEnv(gym.Env):
         self.action_time_unit_sec = float(self.exam_cfg.get("action_time_unit_sec", 30))
         self.switch_time_sec = float(self.exam_cfg.get("switch_time_sec", 10))
         self.randomize_start_problem = bool(self.exam_cfg.get("randomize_start_problem", True))
+        self.shuffle_problem_order_on_reset = bool(self.exam_cfg.get("shuffle_problem_order_on_reset", False))
         self.difficulty_time_priors_sec = {
             str(k): float(v) for k, v in self.exam_cfg.get("difficulty_time_priors_sec", {}).items()
         }
@@ -161,6 +162,7 @@ class ExamStrategyEnv(gym.Env):
         self._recent_problem_entries: list[int] = []
         self._current_session_had_work = False
         self._current_session_entry_was_revisit = False
+        self.problem_order: list[int] = list(range(self.num_problems))
 
         # [action_type, target_problem_idx]
         # action_type: 0=solve_more on current problem, 1=move to another problem
@@ -198,7 +200,11 @@ class ExamStrategyEnv(gym.Env):
             exam_slot = int(exam_index) % len(self.exam_bank)
         selected_exam = self.exam_bank[exam_slot]
         self.exam_data_path = str(selected_exam["path"])
-        self.problems = list(selected_exam["problems"])
+        original_problems = list(selected_exam["problems"])
+        self.problem_order = list(range(len(original_problems)))
+        if self.shuffle_problem_order_on_reset and len(original_problems) > 1:
+            self.problem_order = [int(i) for i in self.rng.permutation(len(original_problems))]
+        self.problems = [original_problems[i] for i in self.problem_order]
         self.num_problems = len(self.problems)
         self.total_time_sec = float(self.exam_cfg.get("total_time_sec", selected_exam["exam_data"].get("total_time_sec", 6000)))
         min_step_time = max(min(self.action_time_unit_sec, self.switch_time_sec), 1.0)
@@ -260,7 +266,13 @@ class ExamStrategyEnv(gym.Env):
         self._current_session_had_work = False
         self._current_session_entry_was_revisit = False
         obs = self._get_obs()
-        info = {"student_id": self.current_student.student_id, "exam_path": self.exam_data_path, "start_problem_idx": start_idx}
+        info = {
+            "student_id": self.current_student.student_id,
+            "exam_path": self.exam_data_path,
+            "start_problem_idx": start_idx,
+            "problem_order": list(self.problem_order),
+            "problem_pids": [int(problem.pid) for problem in self.problems],
+        }
         return obs, info
 
     def step(self, action):
@@ -303,6 +315,8 @@ class ExamStrategyEnv(gym.Env):
                 "same_problem_streak": 0,
                 "exam_path": self.exam_data_path,
                 "visit_order": [target_idx + 1],
+                "problem_order": list(self.problem_order),
+                "problem_pids": [int(problem.pid) for problem in self.problems],
                 "forced_switch_reason": None,
                 "no_work_revisit": False,
             }
@@ -382,6 +396,8 @@ class ExamStrategyEnv(gym.Env):
             "same_problem_streak": self.state.same_problem_streak,
             "exam_path": self.exam_data_path,
             "visit_order": [idx + 1 for idx in self.state.visit_order],
+            "problem_order": list(self.problem_order),
+            "problem_pids": [int(problem.pid) for problem in self.problems],
             "forced_switch_reason": forced_switch_reason,
             "no_work_revisit": bool(action_name == "next" and no_work_revisit),
         }

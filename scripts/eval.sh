@@ -5,36 +5,50 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/eval.sh <algo> <level>
+  bash scripts/eval.sh <algo> <subject> <level>
+  bash scripts/eval.sh <subject> <level>        # defaults to ppo
 
 Arguments:
-  <algo>   ppo | dqn
-  <level>  low | mid | high
+  <algo>     ppo | dqn
+  <subject>  calculus | geometry | prob_stat
+  <level>    low | mid | high
 
 Behavior:
-  - Finds the most recently modified run directory under runs/<algo>/train__<level>/
-  - Evaluates that model on:
-    * data/25_math_calculus.json
-    * data/25_math_geometry.json
-    * data/25_math_prob_stat.json
+  - Finds the most recently modified run directory under runs/<algo>/<subject>/<level>/
+  - Evaluates that model zero-shot on the matching CSAT file:
+    * data/25_math_<subject>.json
 
 Example:
-  bash scripts/eval.sh dqn high
+  bash scripts/eval.sh ppo calculus high
+  bash scripts/eval.sh dqn calculus high
 EOF
 }
 
-if [[ $# -ne 2 ]]; then
+if [[ $# -eq 2 ]]; then
+  ALGO="ppo"
+  SUBJECT="$1"
+  LEVEL="$2"
+elif [[ $# -eq 3 ]]; then
+  ALGO="$1"
+  SUBJECT="$2"
+  LEVEL="$3"
+else
   usage
   exit 1
 fi
-
-ALGO="$1"
-LEVEL="$2"
 
 case "$ALGO" in
   ppo|dqn) ;;
   *)
     echo "[error] algo must be one of: ppo, dqn" >&2
+    exit 1
+    ;;
+esac
+
+case "$SUBJECT" in
+  calculus|geometry|prob_stat) ;;
+  *)
+    echo "[error] subject must be one of: calculus, geometry, prob_stat" >&2
     exit 1
     ;;
 esac
@@ -50,7 +64,7 @@ esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-RUN_ROOT="runs/${ALGO}/train__${LEVEL}"
+RUN_ROOT="runs/${ALGO}/${SUBJECT}/${LEVEL}"
 LATEST_RUN="$(find "$RUN_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | xargs -0 ls -td 2>/dev/null | head -n 1)"
 
 if [[ -z "${LATEST_RUN:-}" ]]; then
@@ -77,22 +91,17 @@ declare -A EXAM_MAP=(
   ["prob_stat"]="data/25_math_prob_stat.json"
 )
 
-echo "[eval] algo=${ALGO} level=${LEVEL}"
+EXAM_PATH="${EXAM_MAP[$SUBJECT]}"
+OUTPUT_DIR="runs/zero_shot/${ALGO}/${SUBJECT}/${LEVEL}"
+
+echo "[eval] algorithm=${ALGO} subject=${SUBJECT} level=${LEVEL}"
 echo "[eval] latest_run=${LATEST_RUN}"
 
-for SUBJECT in calculus geometry prob_stat; do
-  EXAM_PATH="${EXAM_MAP[$SUBJECT]}"
-  OUTPUT_DIR="results/${ALGO}/${LEVEL}/${SUBJECT}"
-
-  echo
-  echo "[eval] subject=${SUBJECT}"
-  python main.py \
-    --mode eval \
-    --config "$SNAPSHOT_PATH" \
-    --model-path "$MODEL_PATH" \
-    --algorithm "$ALGO" \
-    --exam-data "$EXAM_PATH" \
-    --episodes 100 \
-    --output "$OUTPUT_DIR"
-done
-
+python main.py \
+  --mode eval \
+  --config "$SNAPSHOT_PATH" \
+  --model-path "$MODEL_PATH" \
+  --algorithm "$ALGO" \
+  --exam-data "$EXAM_PATH" \
+  --episodes 100 \
+  --output "$OUTPUT_DIR"

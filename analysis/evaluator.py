@@ -73,6 +73,10 @@ class EpisodeRecord:
     steps: int
     time_spent_total: float
     problem_time_spent: list[float]
+    problem_pids: list[int]
+    problem_difficulty_levels: list[str]
+    problem_scores: list[float]
+    problem_types: list[str]
     visit_order: list[int]
     score_timeline: list[float]
     used_time_timeline: list[float]
@@ -100,6 +104,10 @@ class EpisodeRecord:
             "steps": self.steps,
             "time_spent_total": self.time_spent_total,
             "problem_time_spent": self.problem_time_spent,
+            "problem_pids": self.problem_pids,
+            "problem_difficulty_levels": self.problem_difficulty_levels,
+            "problem_scores": self.problem_scores,
+            "problem_types": self.problem_types,
             "visit_order": self.visit_order,
             "score_timeline": self.score_timeline,
             "used_time_timeline": self.used_time_timeline,
@@ -144,6 +152,10 @@ def _episode_metrics(
         steps=int(env.state.step_count),
         time_spent_total=float(total_time),
         problem_time_spent=problem_times,
+        problem_pids=[int(problem.pid) for problem in env.problems],
+        problem_difficulty_levels=[str(problem.difficulty_level) for problem in env.problems],
+        problem_scores=[float(problem.score) for problem in env.problems],
+        problem_types=[str(problem.problem_type) for problem in env.problems],
         visit_order=[idx + 1 for idx in env.state.visit_order],
         score_timeline=[],
         used_time_timeline=[],
@@ -247,6 +259,7 @@ def evaluate_policy(
         "summary": summaries["overall"],
         "student_level_breakdown": summaries["by_level"],
         "problem_avg_time": summaries["problem_avg_time"],
+        "problem_avg_time_by_pid": summaries["problem_avg_time_by_pid"],
         "episode_records": [r.to_dict() for r in records],
     }
 
@@ -300,7 +313,35 @@ def _build_summary(records: list[EpisodeRecord], policy_name: str) -> dict[str, 
     for i in range(num_problems):
         problem_avg_time.append(_mean([r.problem_time_spent[i] for r in records]))
 
-    return {"overall": overall, "by_level": by_level, "problem_avg_time": problem_avg_time}
+    # When problem order is shuffled per episode, slot-based averages above
+    # become hard to interpret. Aggregate by original pid as the stable key.
+    pid_times: dict[int, list[float]] = {}
+    pid_meta: dict[int, dict[str, Any]] = {}
+    for record in records:
+        for idx, pid in enumerate(record.problem_pids):
+            pid_int = int(pid)
+            pid_times.setdefault(pid_int, []).append(float(record.problem_time_spent[idx]))
+            pid_meta.setdefault(
+                pid_int,
+                {
+                    "pid": pid_int,
+                    "difficulty_level": record.problem_difficulty_levels[idx],
+                    "score": record.problem_scores[idx],
+                    "problem_type": record.problem_types[idx],
+                },
+            )
+    problem_avg_time_by_pid = []
+    for pid in sorted(pid_times):
+        item = dict(pid_meta[pid])
+        item["avg_time_sec"] = _mean(pid_times[pid])
+        problem_avg_time_by_pid.append(item)
+
+    return {
+        "overall": overall,
+        "by_level": by_level,
+        "problem_avg_time": problem_avg_time,
+        "problem_avg_time_by_pid": problem_avg_time_by_pid,
+    }
 
 
 def evaluate_heuristics_table(

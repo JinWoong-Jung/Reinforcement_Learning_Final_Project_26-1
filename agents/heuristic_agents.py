@@ -5,10 +5,11 @@ from typing import Callable
 
 import numpy as np
 
-from env.dynamics import confidence_curve
+from env.dynamics import confidence_curve, confidence_static_params, expected_total_score
 from env.exam_env import ExamStrategyEnv
 from env.problem import Problem
 from env.state import ProblemStatus, solved_criteria_from_config
+from env.time_allocation_env import TimeAllocationEnv
 
 
 HeuristicFn = Callable[[ExamStrategyEnv], np.ndarray]
@@ -424,4 +425,152 @@ def evaluate_all_heuristics(
     return [
         evaluate_heuristic_policy(env_factory=env_factory, policy_name=name, episodes=episodes, seed=seed)
         for name in HEURISTIC_POLICIES
+    ]
+
+
+# ===========================================================================
+# Time-allocation baselines
+# ===========================================================================
+
+AllocationPolicyFn = Callable[[TimeAllocationEnv], int]
+
+ALLOCATION_POLICIES = ["equal_time", "difficulty_prior", "greedy_marginal_gain"]
+
+
+def _allocation_marginal_gain(env: TimeAllocationEnv, problem_idx: int) -> float:
+    """Expected score gain from one more action unit on problem_idx."""
+    if env.state is None or env.current_student is None or env._mg_params_cache is None:
+        return 0.0
+    progress = env.state.progress[problem_idx]
+    problem = env.problems[problem_idx]
+    mg_floor, mg_static_logit, mg_alpha, mg_tau, mg_score_norm = env._mg_params_cache[problem_idx]
+    import math
+    t_future = float(progress.time_spent_sec) + env.action_time_unit_sec
+    logit_f = mg_static_logit + mg_alpha * math.log(1.0 + t_future / max(mg_tau, 1.0))
+    sig_f = (1.0 / (1.0 + math.exp(-logit_f)) if logit_f >= 0
+             else math.exp(logit_f) / (1.0 + math.exp(logit_f)))
+    p_future = max(mg_floor, min(1.0, mg_floor + (1.0 - mg_floor) * sig_f))
+    conf_now = float(progress.effective_confidence(problem))
+    return float(mg_score_norm * max(p_future - conf_now, 0.0))
+
+
+def allocation_policy_equal_time(env: TimeAllocationEnv) -> int:
+    """Round-robin: allocate to whichever problem has the least time so far."""
+    if env.state is None:
+        return 0
+    times = [float(p.time_spent_sec) for p in env.state.progress]
+    return int(np.argmin(times))
+
+
+def allocation_policy_difficulty_prior(env: TimeAllocationEnv) -> int:
+    """Allocate proportional to difficulty: harder problems get more time.
+
+    Implementation: always allocate to the problem whose current time share
+    is furthest below its target share.
+    """
+    if env.state is None:
+        return 0
+    difficulty_map = {"하": 0.1, "중하": 0.2, "중": 0.4, "중상": 0.6, "상": 0.8, "최상": 1.0}
+    weights = np.array(
+        [difficulty_map.get(p.difficulty_level, 0.5) for p in env.problems], dtype=float
+    )
+    weights = weights / max(weights.sum(), 1e-9)
+    times = np.array([float(p.time_spent_sec) for p in env.state.progress], dtype=float)
+    total = times.sum()
+    if total <= 0:
+        return int(np.argmax(weights))
+    current_shares = times / total
+    deficits = weights - current_shares
+    return int(np.argmax(deficits))
+
+
+def allocation_policy_greedy_marginal_gain(env: TimeAllocationEnv) -> int:
+    """Greedy: allocate to the problem with highest current marginal gain.
+
+    This is optimal for the separable concave time-allocation problem
+    (discrete water-filling).
+    """
+    if env.state is None:
+        return 0
+    gains = [_allocation_marginal_gain(env, i) for i in range(env.num_problems)]
+    return int(np.argmax(gains))
+
+
+_ALLOCATION_POLICY_FNS: dict[str, AllocationPolicyFn] = {
+    "equal_time": allocation_policy_equal_time,
+    "difficulty_prior": allocation_policy_difficulty_prior,
+    "greedy_marginal_gain": allocation_policy_greedy_marginal_gain,
+}
+
+
+def evaluate_allocation_policy(
+    env_factory: Callable[[], TimeAllocationEnv],
+    policy_name: str,
+    episodes: int = 50,
+    seed: int = 42,
+) -> dict:
+    """Run an allocation heuristic and return summary statistics."""
+    policy_fn = _ALLOCATION_POLICY_FNS[policy_name]
+    solved_criteria: dict = {}
+
+    metrics: dict[str, list] = {
+        k: [] for k in [
+            "reward", "score", "solved_count", "visited_count", "coverage_fraction",
+            "objective_dominance_rate", "mean_subjective_confidence",
+            "subjective_solved_rate", "objective_solved_rate",
+            "top1_time_share", "top2_time_share", "remaining_time_sec", "steps",
+        ]
+    }
+
+    for ep in range(episodes):
+        env = env_factory()
+        obs, info = env.reset(seed=seed + ep)
+        if not solved_criteria:
+            solved_criteria = solved_criteria_from_config(env.config)
+        done = False
+        truncated = False
+        ep_reward = 0.0
+        while not (done or truncated):
+            action = policy_fn(env)
+            obs, reward, done, truncated, _ = env.step(action)
+            ep_reward += float(reward)
+
+        state = env.state
+        assert state is not None
+        times = [float(p.time_spent_sec) for p in state.progress]
+        total_t = sum(times)
+        sorted_t = sorted(times, reverse=True)
+        top1 = sorted_t[0] if sorted_t else 0.0
+        top2 = sum(sorted_t[:2]) if sorted_t else 0.0
+
+        metrics["reward"].append(ep_reward)
+        metrics["score"].append(float(state.total_score))
+        metrics["solved_count"].append(float(state.solved_count(env.problems, **solved_criteria)))
+        metrics["visited_count"].append(float(state.visited_count()))
+        metrics["coverage_fraction"].append(float(state.coverage_fraction()))
+        metrics["objective_dominance_rate"].append(float(state.objective_dominance_rate(env.problems)))
+        metrics["mean_subjective_confidence"].append(float(state.mean_subjective_confidence(env.problems)))
+        metrics["subjective_solved_rate"].append(float(state.subjective_solved_rate(env.problems, **solved_criteria)))
+        metrics["objective_solved_rate"].append(float(state.objective_solved_rate(env.problems, **solved_criteria)))
+        metrics["top1_time_share"].append(float(top1 / total_t) if total_t > 0 else 0.0)
+        metrics["top2_time_share"].append(float(top2 / total_t) if total_t > 0 else 0.0)
+        metrics["remaining_time_sec"].append(float(state.remaining_time_sec))
+        metrics["steps"].append(float(state.step_count))
+
+    return {
+        "policy": policy_name,
+        "episodes": episodes,
+        **{f"mean_{k}": float(np.mean(v)) for k, v in metrics.items()},
+    }
+
+
+def evaluate_all_allocation_policies(
+    env_factory: Callable[[], TimeAllocationEnv],
+    episodes: int = 50,
+    seed: int = 42,
+) -> list[dict]:
+    return [
+        evaluate_allocation_policy(env_factory=env_factory, policy_name=name,
+                                   episodes=episodes, seed=seed)
+        for name in ALLOCATION_POLICIES
     ]

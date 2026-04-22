@@ -5,36 +5,49 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/traj.sh <algo> <level>
+  bash scripts/traj.sh <algo> <subject> <level>
+  bash scripts/traj.sh <subject> <level>        # defaults to ppo
 
 Arguments:
-  <algo>   ppo | dqn
-  <level>  low | mid | high
+  <algo>     ppo | dqn
+  <subject>  calculus | geometry | prob_stat
+  <level>    low | mid | high
 
 Behavior:
-  - Finds the most recently modified run directory under runs/<algo>/train__<level>/
-  - Generates trajectory reports for:
-    * data/25_math_calculus.json
-    * data/25_math_geometry.json
-    * data/25_math_prob_stat.json
+  - Finds the most recently modified run directory under runs/<algo>/<subject>/<level>/
+  - Generates a trajectory report on the matching CSAT file
 
 Example:
-  bash scripts/traj.sh ppo low
+  bash scripts/traj.sh ppo geometry low
+  bash scripts/traj.sh dqn geometry low
 EOF
 }
 
-if [[ $# -ne 2 ]]; then
+if [[ $# -eq 2 ]]; then
+  ALGO="ppo"
+  SUBJECT="$1"
+  LEVEL="$2"
+elif [[ $# -eq 3 ]]; then
+  ALGO="$1"
+  SUBJECT="$2"
+  LEVEL="$3"
+else
   usage
   exit 1
 fi
-
-ALGO="$1"
-LEVEL="$2"
 
 case "$ALGO" in
   ppo|dqn) ;;
   *)
     echo "[error] algo must be one of: ppo, dqn" >&2
+    exit 1
+    ;;
+esac
+
+case "$SUBJECT" in
+  calculus|geometry|prob_stat) ;;
+  *)
+    echo "[error] subject must be one of: calculus, geometry, prob_stat" >&2
     exit 1
     ;;
 esac
@@ -50,7 +63,7 @@ esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-RUN_ROOT="runs/${ALGO}/train__${LEVEL}"
+RUN_ROOT="runs/${ALGO}/${SUBJECT}/${LEVEL}"
 LATEST_RUN="$(find "$RUN_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | xargs -0 ls -td 2>/dev/null | head -n 1)"
 
 if [[ -z "${LATEST_RUN:-}" ]]; then
@@ -71,21 +84,17 @@ declare -A EXAM_MAP=(
   ["prob_stat"]="data/25_math_prob_stat.json"
 )
 
-echo "[traj] algo=${ALGO} level=${LEVEL}"
+EXAM_PATH="${EXAM_MAP[$SUBJECT]}"
+OUTPUT_PATH="results/${ALGO}/${SUBJECT}/${LEVEL}_trajectory.json"
+
+echo "[traj] algorithm=${ALGO} subject=${SUBJECT} level=${LEVEL}"
 echo "[traj] latest_run=${LATEST_RUN}"
 
-for SUBJECT in calculus geometry prob_stat; do
-  EXAM_PATH="${EXAM_MAP[$SUBJECT]}"
-  OUTPUT_PATH="results/${ALGO}/${LEVEL}/${SUBJECT}_trajectory.json"
-
-  echo
-  echo "[traj] subject=${SUBJECT}"
-  python analysis/trajectory_report.py \
-    --run-dir "$LATEST_RUN" \
-    --model-path "$MODEL_PATH" \
-    --algorithm "$ALGO" \
-    --exam-data "$EXAM_PATH" \
-    --episodes 10 \
-    --max-logged-steps 80 \
-    --output "$OUTPUT_PATH"
-done
+python analysis/trajectory_report.py \
+  --run-dir "$LATEST_RUN" \
+  --model-path "$MODEL_PATH" \
+  --algorithm "$ALGO" \
+  --exam-data "$EXAM_PATH" \
+  --episodes 10 \
+  --max-logged-steps 80 \
+  --output "$OUTPUT_PATH"

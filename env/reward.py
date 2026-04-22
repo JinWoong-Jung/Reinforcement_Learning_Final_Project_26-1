@@ -258,5 +258,13 @@ def compute_terminal_reward(
     # (k/N) * completion_bonus rather than 0 until all N are visited.
     coverage = _coverage_fraction(state)
     reward += coverage * _rw(reward_cfg, "terminal", "completion_bonus", default=0.0)
+    # Score-proportional bonus: rewards the agent in direct proportion to the
+    # expected exam score, providing a gradient signal toward solving problems well
+    # rather than merely visiting them.
+    score_bonus_scale = _rw(reward_cfg, "terminal", "score_bonus_scale", default=0.0)
+    if score_bonus_scale != 0.0:
+        max_score = sum(p.score for p in problems)
+        score_frac = state.total_score / max(max_score, 1.0)
+        reward += score_bonus_scale * score_frac
     reward += _concentration_penalty(state, reward_cfg)
     return float(reward)

@@ -16,6 +16,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from env.exam_env import ExamStrategyEnv
+from env.time_allocation_env import TimeAllocationEnv
 from env.state import solved_criteria_from_config
 from utils.io import load_config
 
@@ -266,6 +267,9 @@ def _ensure_dirs(base_dir: str) -> dict[str, str]:
 
 
 def _build_env(config: dict[str, Any], for_dqn: bool = False, seed: int | None = None):
+    env_type = str(config.get("training", {}).get("env_type", "strategy")).lower()
+    if env_type == "time_allocation":
+        return TimeAllocationEnv(config=config, random_seed=seed)
     env = ExamStrategyEnv(config=config, random_seed=seed)
     env = _apply_strategy_constraint(env, config)
     if for_dqn and hasattr(env.action_space, "nvec"):
