@@ -15,7 +15,6 @@
   </p>
 </p>
 
-![Mid Student: Baseline vs PPO vs DQN](<assets/baseline_vs_ppo_vs_dqn(mid).png>)
 
 ## ✨ Project Overview
 
@@ -91,16 +90,18 @@ The reward at each step is the change in expected utility, with a terminal bonus
 
 $$
 \begin{aligned}
-r_t =\;& U(s_{t+1}) - U(s_t) \\
-&+ \mathbb{1}[\text{terminal}] \cdot \text{score\_bonus\_scale} \cdot \frac{U(s_T)}{\sum_i \text{score}_i}
+r_t &= U(s_{t+1}) - U(s_t) \\
+&\quad + \mathbf{1}_{\mathrm{terminal}} \cdot \lambda_{\mathrm{score}} \cdot \frac{U(s_T)}{\sum_i \mathrm{score}_i}
 \end{aligned}
 $$
 
 where the expected utility is defined as
 
 $$
-U(s)=\sum_i \text{score}_i \cdot \text{confidence}_i(s)
+U(s)=\sum_i \mathrm{score}_i \cdot \mathrm{confidence}_i(s)
 $$
+
+Here, $\lambda_{\mathrm{score}}$ corresponds to `score_bonus_scale` in the config.
 
 Student ability is injected directly through `theta`:
 
