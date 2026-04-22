@@ -25,8 +25,8 @@ At each step, the current environment gives the agent one time token, such as 30
 
 The current experiments use:
 
-- `PPO` ([Proximal Policy Optimization Algorithms](https://arxiv.org/pdf/1707.06347)) as the main training algorithm
-- `TimeAllocationEnv` as the main environment
+- `PPO` ([Proximal Policy Optimization Algorithms](https://arxiv.org/pdf/1707.06347)) and `DQN` ([Playing Atari with Deep Reinforcement Learning](https://arxiv.org/pdf/1312.5602)) as the RL algorithms
+- `TimeAllocationEnv` as the time-allocation environment
 - `low`, `mid`, and `high` student ability profiles, represented by a single ability parameter `theta`
 
 The goal is not to learn the order in which problems are solved. The current setup intentionally removes ordering and revisit decisions so that the learned policy can be interpreted directly as "how much time should be invested in each problem?"
@@ -70,7 +70,7 @@ Given a fixed exam-time budget, the agent repeatedly assigns the next time token
 The confidence score for each problem is modeled as
 
 $$
-p_i(t)=c_i+(1-c_i)\space\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
+p_i(t)=c_i+(1-c_i)\,\sigma\left(\theta-\beta d_i-\gamma a_i+\alpha \log\left(1+\frac{t}{\tau}\right)\right)
 $$
 
 where the main dynamics parameters are:
@@ -86,7 +86,7 @@ where the main dynamics parameters are:
 | $\gamma$ | ambiguity penalty coefficient | configured by `dynamics.ambiguity_weight` |
 | $\tau$ | time scale | configured by `dynamics.tau` |
 
-The reward at each step is the change in expected utility, with a terminal bonus proportional to the final score:
+For the final PPO/DQN experiment configs, the reward at each step is the change in expected utility, with a terminal bonus proportional to the final expected score:
 
 $$
 \begin{aligned}
@@ -102,6 +102,7 @@ U(s)=\sum_i \mathrm{score}_i \cdot \mathrm{confidence}_i(s)
 $$
 
 Here, $\lambda_{\mathrm{score}}$ corresponds to `score_bonus_scale` in the config.
+Other terminal shaping terms, such as timeout, completion, and concentration penalties, are set to zero in the reported experiments.
 
 Student ability is injected directly through `theta`:
 
@@ -130,7 +131,7 @@ Each student level corresponds to one ability value, and that value is used in t
 
 Key entrypoints:
 
-- `main.py`: train, eval, heuristic modes
+- `main.py`: train, eval, heuristic, and cross-validation modes
 - `agents/train_rl.py`: PPO and DQN training
 - `analysis/trajectory_report.py`: trajectory inspection
 
@@ -146,6 +147,8 @@ The dataset construction was prepared with reference to materials provided by [M
 | `calculus` | `data/calculus/*.json` | `data/25_math_calculus.json` |
 | `geometry` | `data/geometry/*.json` | `data/25_math_geometry.json` |
 | `prob_stat` | `data/prob_stat/*.json` | `data/25_math_prob_stat.json` |
+
+The final PPO/DQN configs shuffle problem order on reset to reduce memorization of fixed problem positions. Per-problem evaluation outputs and exported CSVs are therefore mapped back to the original problem id (`pid`).
 
 ## 🏋️ How to Run
 
@@ -228,6 +231,36 @@ bash scripts/traj.sh <algo> <subject> <level>
 
 This script automatically finds the most recent run under `runs/<algo>/<subject>/<level>/` and generates a trajectory report on the matching CSAT file.
 
+### Export Per-Problem Time Allocation CSVs
+
+After zero-shot evaluation, export each model's average time allocation per problem:
+
+```bash
+python scripts/export_zero_shot_problem_times.py --algorithm ppo
+python scripts/export_zero_shot_problem_times.py --algorithm dqn
+```
+
+The script reads `runs/zero_shot/<algo>/<subject>/<level>/eval_<algo>_*/rl_eval_detailed.json` and saves one CSV per subject-level pair:
+
+```text
+results/<algo>_zero_shot_problem_times/<subject>_<level>.csv
+```
+
+Each CSV uses the fixed columns:
+
+```text
+pid,difficulty,type,score,error_rate,avg_time_sec
+```
+
+To export only selected subjects or levels:
+
+```bash
+python scripts/export_zero_shot_problem_times.py \
+  --algorithm dqn \
+  --subjects calculus geometry prob_stat \
+  --levels low mid high
+```
+
 
 ## 📋 Results
 
@@ -240,6 +273,7 @@ This script automatically finds the most recent run under `runs/<algo>/<subject>
 | high ($\theta=3.0$) | 87.53 | 93.30 | 92.31 |
 
 `Score Change vs Baseline` in the RL result tables is computed as `(Mean Score - Analytic Baseline) / Analytic Baseline`.
+The primary metric is `Mean Score` on the unseen CSAT exam; `Mean Reward` includes the training reward definition and terminal bonus, so it is reported as a diagnostic rather than a direct score.
 
 ### 1. PPO
 
@@ -259,28 +293,26 @@ PPO models were trained on the six mock exams for each subject and evaluated zer
 
 ### 2. DQN
 
-DQN is currently being trained. The final zero-shot CSAT results will be filled in using the same format.
+DQN models were trained on the same six mock exams and evaluated zero-shot on the unseen CSAT exam.
 
 | Subject | Level | Mean Score | Mean Reward | Mean Solved Count | Mean Coverage | Score Change vs Baseline |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| calculus | low | TBD | TBD | TBD | TBD | TBD |
-| calculus | mid | TBD | TBD | TBD | TBD | TBD |
-| calculus | high | TBD | TBD | TBD | TBD | TBD |
-| geometry | low | TBD | TBD | TBD | TBD | TBD |
-| geometry | mid | TBD | TBD | TBD | TBD | TBD |
-| geometry | high | TBD | TBD | TBD | TBD | TBD |
-| prob_stat | low | TBD | TBD | TBD | TBD | TBD |
-| prob_stat | mid | TBD | TBD | TBD | TBD | TBD |
-| prob_stat | high | TBD | TBD | TBD | TBD | TBD |
+| calculus | low | 74.3402 | 54.6836 | 28.25 | 1.0000 | +6.78% |
+| calculus | mid | 86.8490 | 67.3175 | 29.99 | 1.0000 | +2.55% |
+| calculus | high | 93.8314 | 74.3698 | 29.98 | 0.9993 | +0.57% |
+| geometry | low | 71.9308 | 52.2501 | 27.02 | 1.0000 | +7.54% |
+| geometry | mid | 85.8593 | 66.3179 | 30.00 | 1.0000 | +3.69% |
+| geometry | high | 93.7143 | 74.2515 | 30.00 | 1.0000 | +1.52% |
+| prob_stat | low | 64.1232 | 44.3644 | 24.69 | 0.9913 | +12.64% |
+| prob_stat | mid | 80.6617 | 61.0683 | 29.95 | 1.0000 | +7.97% |
+| prob_stat | high | 91.0286 | 71.5389 | 30.00 | 1.0000 | +4.00% |
 
 ## Team Contributions
 
-Please replace the placeholders below with the final contribution details for each member.
-
-- `Jinwoong Jung`: [fill in contribution details]
-- `Yuji Lim`: [fill in contribution details]
-- `Sangyun Lee`: [fill in contribution details]
-- `Jungwoo Choi`: [fill in contribution details]
+- `Jinwoong Jung`: RL environment design, confidence score modeling, reward function design, PPO/DQN implementation, and experiments
+- `Yuji Lim`: Presentation slide design, project report writing, result analysis, and visualization
+- `Sangyun Lee`: Project report writing, presentation slide design, and related work survey
+- `Jungwoo Choi`: Presentation slide design, baseline experiments, data collection, and preprocessing
 
 ## Acknowledgement
 
