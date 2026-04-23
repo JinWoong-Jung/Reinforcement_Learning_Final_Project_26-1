@@ -4,8 +4,11 @@ import argparse
 import copy
 import json
 import os
+import tempfile
 from datetime import datetime
 from typing import Any
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "rlproject_matplotlib"))
 
 import numpy as np
 
@@ -273,7 +276,7 @@ def run_cross_validation(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exam RL project entrypoint")
-    parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--config", type=str, default="configs/ppo/geometry/mid.yaml")
     parser.add_argument("--mode", type=str, choices=["train", "eval", "heuristic", "cv"], required=True)
     parser.add_argument("--output", type=str, default="runs")
     parser.add_argument("--exam-data", type=str, default=None, help="Exam JSON path (overrides config)")
