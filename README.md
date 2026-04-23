@@ -36,15 +36,15 @@ The goal is not to learn the order in which problems are solved. The current set
 ### Clone
 
 ```bash
-git clone https://github.com/JinWoong-Jung/Reinforcement_Learning_Final_Project_26-1.git
-cd RLProject
+git clone https://github.com/JinWoong-Jung/K-PASS.git
+cd K-PASS
 ```
 
 ### Conda
 
 ```bash
-conda create -n rlproject python=3.11 -y
-conda activate rlproject
+conda create -n kpass python=3.11 -y
+conda activate kpass
 pip install -r requirements.txt
 ```
 
